@@ -1,4 +1,4 @@
-﻿# AI 测试员助手平台
+# AI 测试员助手平台
 
 [![Repo](https://img.shields.io/badge/GitHub-ai--tester--assistant-181717?logo=github)](https://github.com/xiaoliu2020713-ux/ai-tester-assistant)
 [![Python](https://img.shields.io/badge/Python-3.10~3.12-blue)](https://www.python.org/)
@@ -54,9 +54,28 @@
 
 ---
 
-## 一、快速开始
+## 📖 目录
 
-### 0. 三分钟体验路径（不需要模型，不需要外网）
+| 章节 | 内容 |
+| --- | --- |
+| [一、🚀 快速开始](#一-快速开始) | 三分钟体验路径 · 环境要求 · 安装 · 配置 · 自检 · 启动界面 |
+| [二、🗂 完整项目目录树](#二-完整项目目录树) | 每个文件干什么 |
+| [三、🧠 多域 RAG 知识库](#三-多域-rag-知识库) | 内容规模 · 向量模型 · 语义检索实测 · 一致性防护 · 回退链 |
+| [四、🖥 本地模型配置](#四-本地模型配置) | 一条命令拉起 · 自动探测 · 已排除的假故障 |
+| [五、🖱 界面使用说明](#五-界面使用说明) | 确认模型连接 · 切换知识域 · 粘贴文档生成用例 |
+| [六、⌨️ 命令行工具](#六-命令行工具) | 知识库构建 · 模型检测 · 用例执行全部命令 |
+| [七、⚙️ 自动化执行层](#七-自动化执行层) | 界面操作 · 生成脚本的设计约定 · 实测缺陷发现 |
+| [八、🔧 配置项说明](#八-配置项说明) | `config.py` / `.env` 全量参数 |
+| [九、➕ 扩展新的业务域](#九-扩展新的业务域) | 三步接入新域 |
+| [十、📌 能力边界](#十-能力边界) | 哪些做了、哪些没做 |
+| [十一、❓ 常见问题](#十一-常见问题) | 排障速查 |
+| [十二、✅ 验证记录](#十二-验证记录) | 本机实测数据与真实模型输出 |
+
+---
+
+## 一、🚀 快速开始
+
+### 1. 三分钟体验路径（不需要模型、不需要外网）
 
 克隆后依次执行，**全程不依赖任何大模型**，用于快速验证接口测试与缺陷发现能力：
 
@@ -94,7 +113,7 @@ python scripts/start_local_model.py           # 本地千问3.5 4B（需 D:\tool
 streamlit run app.py                          # http://localhost:8501
 ```
 
-### 1. 环境要求
+### 2. 环境要求
 
 | 项 | 要求 |
 | --- | --- |
@@ -109,7 +128,7 @@ streamlit run app.py                          # http://localhost:8501
 > Windows cp312 wheel；本项目因此在 `requirements.txt` 中锁定
 > `chromadb==0.5.4` + `chroma-hnswlib==0.7.5`（有 cp312-win_amd64 wheel）。
 
-### 2. 安装
+### 3. 安装
 
 ```powershell
 # Windows PowerShell（在项目根目录 ai-tester-assistant 下执行）
@@ -157,7 +176,7 @@ python -m pip install --no-deps --only-binary=:all: -r requirements.lock
 PyPI 解析器）生成的精确版本清单，已包含 `chromadb` / `opentelemetry` / `pydantic`
 等所有互相兼容的版本，可直接使用。
 
-### 3. 配置（可选）
+### 4. 配置（可选）
 
 ```powershell
 Copy-Item .env.example .env
@@ -165,7 +184,7 @@ Copy-Item .env.example .env
 
 默认值已指向本地模型，通常**无需修改**即可运行；界面上的「模型配置区」优先级更高，可在会话内实时覆盖。
 
-### 4. 自检（不需要模型，验证 RAG 全链路）
+### 5. 自检（不需要模型，验证 RAG 全链路）
 
 ```powershell
 python scripts/smoke_test.py      # 配置 → 三域索引 → 检索 → 提示词 → 用例解析 → 导出
@@ -175,7 +194,7 @@ python scripts/test_app.py        # Streamlit 界面无头测试（官方 AppTes
 
 三个脚本的期望结尾都是 `✅ ... 全部通过。`
 
-### 5. 启动界面
+### 6. 启动界面
 
 ```powershell
 streamlit run app.py
@@ -185,7 +204,9 @@ streamlit run app.py
 
 ---
 
-## 二、完整项目目录树
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 二、🗂 完整项目目录树
 
 ```
 ai-tester-assistant/
@@ -307,9 +328,11 @@ ai-tester-assistant/
 
 ---
 
-## 三、多域 RAG 知识库（已建成并用语义向量重建）
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
 
-### 4.1 内容规模（实测）
+## 三、🧠 多域 RAG 知识库
+
+### 3.1 内容规模（实测）
 
 | 业务域 | 文件 | 片段数 | 规则编号 | 内容 |
 | --- | --- | --- | --- | --- |
@@ -321,7 +344,7 @@ ai-tester-assistant/
 
 每个业务域都齐备你要求的「**业务规则 + 常见测试场景 + 用例模板**」，外加一份可粘贴的接口文档示例。
 
-### 4.2 向量模型：已从「哈希兜底」升级为「本地语义向量」
+### 3.2 向量模型：从「哈希兜底」升级为「本地语义向量」
 
 | 阶段 | 向量模型 | 检索质量 |
 | --- | --- | --- |
@@ -331,7 +354,7 @@ ai-tester-assistant/
 模型缓存已落在项目内 `storage/models`（避免用户目录无写权限），
 国内网络直连 huggingface.co 不通时**自动切换镜像 `hf-mirror.com`**（已验证）。
 
-### 4.3 语义检索实测（关键验证）
+### 3.3 语义检索实测（关键验证）
 
 下面这些**刻意避开原文措辞**的提问，都能命中正确规则 —— 这正是语义向量相对关键词检索的价值：
 
@@ -342,7 +365,7 @@ ai-tester-assistant/
 | 「两个同学抢最后一个名额，谁先提交谁就一定能选上吗」 | `course/01_business_rules.md` 候补与抽签 | **CS-18 / CS-19**（候补队列顺序） |
 | 「读者借书一直不还，产生的钱怎么算，有没有封顶」 | `library/01_business_rules.md` 归还与续借 | **BR-10 / BR-19**（逾期罚金与上限） |
 
-### 4.4 「索引与向量模型不一致」的自动防护
+### 3.4 「索引与向量模型不一致」的自动防护
 
 换向量模型后若不重建索引，语义检索会拿到无意义的向量（召回全是噪声）。
 本项目已加三重防护：
@@ -352,7 +375,7 @@ ai-tester-assistant/
    `hash` 与 `bge-small-zh` 恰好都是 512 维，只比维度会漏判）；
 3. 检索时若发现不一致，会在「本轮参考知识」里给出明确提示。
 
-### 4.5 两级回退链（保证任何环境都能跑）
+### 3.5 两级回退链（保证任何环境都能跑）
 
 ```
 openai_api（本地 8080 的 /v1/embeddings）
@@ -367,7 +390,9 @@ hash（内置哈希向量，零依赖零下载）
 
 ---
 
-## 四、本地模型配置（本机已就绪）
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 四、🖥 本地模型配置
 
 本机模型资产位于 **`D:\tools`**：
 
@@ -376,7 +401,7 @@ hash（内置哈希向量，零依赖零下载）
 | 推理引擎 | `D:\tools\llama-b11462-bin-win-cuda-13.4-x64\llama-server.exe` | llama.cpp CUDA 版（build 11462） |
 | 模型权重 | `D:\tools\models\Qwen3.5-4B-Q6_K.gguf` | 千问3.5 4B，Q6_K 量化，3.28 GB，4.2B 参数 |
 
-### 3.1 一条命令拉起模型
+### 4.1 一条命令拉起模型
 
 ```powershell
 python scripts/start_local_model.py
@@ -399,7 +424,7 @@ python scripts/start_local_model.py
 > 现默认 `-c 8192 -np 1`，实测显存占用 5.4 GB / 空闲 2.5 GB，稳定运行。
 > 显存更紧张时用 `--ctx 4096`，或 `--cpu-only` 完全走 CPU。
 
-### 3.2 自动探测并写入配置
+### 4.2 自动探测并写入配置
 
 ```powershell
 python scripts/setup_local_model.py      # 扫描常见推理端口 → 写入 .env
@@ -407,7 +432,7 @@ python scripts/check_llm.py              # 连接自检（列表 + 对话探针�
 python scripts/test_local_model.py       # 真实模型端到端（生成用例 → 解析 → 渲染）
 ```
 
-### 3.3 两个已排除的「假故障」
+### 4.3 两个已排除的「假故障」
 
 实测这两个坑会让人误以为模型没配好：
 
@@ -420,12 +445,15 @@ python scripts/test_local_model.py       # 真实模型端到端（生成用例 
    `/v1/models` 返回 `{"object":"list","data":null}`。只看 HTTP 200 会误判为可用。
    现在判定标准改为「必须返回**非空**模型列表」，探测结果只认真正可用的 8080。
 
+---
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
 
-## 五、界面使用说明
+
+## 五、🖱 界面使用说明
 
 界面分为三块：**左侧配置栏**、**右侧上「API 文档」区**、**右侧下「对话」区**。
 
-### 3.1 如何确认本地模型连接成功
+### 5.1 如何确认本地模型连接成功
 
 三种方式，任选其一：
 
@@ -457,7 +485,7 @@ python scripts/test_local_model.py       # 真实模型端到端（生成用例 
 > - 模型名不存在（例如实际是 `qwen2.5:4b`）→ 用「拉取模型列表」从下拉框选择；
 > - 4B 小模型生成慢触发超时 → 「高级参数」调大请求超时。
 
-### 3.2 如何切换知识域
+### 5.2 如何切换知识域
 
 左侧「**知识域（当前检索范围）**」单选按钮：
 
@@ -473,7 +501,7 @@ python scripts/test_local_model.py       # 真实模型端到端（生成用例 
 - 系统提示词中的「当前业务域」随之变化，AI 会引用该域的规则编号（BR-/EC-/CS-）；
 - 上传/粘贴的文档默认索引到当前所选业务域。
 
-### 3.3 如何让 AI 根据粘贴的 API 文档生成测试用例
+### 5.3 如何让 AI 根据粘贴的 API 文档生成测试用例
 
 **方式 A：一键分析（推荐）**
 
@@ -501,7 +529,51 @@ python scripts/test_local_model.py       # 真实模型端到端（生成用例 
 
 ---
 
-## 六、命令行工具
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 六、⌨️ 命令行工具
+
+### 6.1 被测系统与接口测试
+
+```powershell
+# ---------- 被测系统：图书管理系统（FastAPI + SQLite + JWT）----------
+python book_management/run.py                  # 启动，默认 127.0.0.1:8101
+python book_management/run.py --port 8201      # 换端口（测试侧用 --base-url 对齐）
+python book_management/run.py --reload         # 开发模式，改代码自动重启
+python book_management/run.py --reset-db       # 先删库再启动（回到初始种子数据）
+#    Swagger 文档：http://127.0.0.1:8101/docs
+#    OpenAPI JSON：http://127.0.0.1:8101/openapi.json
+
+# ---------- 接口自动化测试（Pytest + Requests + Allure）----------
+python book_api_test/run_tests.py               # 全套 + 生成 Allure 报告
+python book_api_test/run_tests.py --open        # 生成后用浏览器打开报告
+python book_api_test/run_tests.py -m smoke      # 只跑冒烟
+python book_api_test/run_tests.py --base-url http://127.0.0.1:8201
+
+cd book_api_test
+pytest                                          # 普通回归（42 通过 / 1 跳过）
+pytest tests_defects                            # 缺陷暴露（预期 6 个失败 = 抓到 6 条缺陷）
+pytest -k borrow -v                             # 只跑借书相关
+pytest --alluredir reports/allure-results       # 只产出 Allure 原始数据
+```
+
+### 6.2 多域演示服务（电商 / 选课 / 支付）
+
+```powershell
+python sut/run_service.py all --background     # 一次拉起 4 套被测系统（8101~8104）
+python sut/run_service.py --status             # 探活
+python sut/run_service.py --list               # 列出服务与端口
+python sut/run_service.py all --stop           # 停止
+python sut/run_service.py --reset-db           # 删除 SQLite 数据库（需先停服务）
+
+python sut/reset_and_restart.py                # 一键：停 → 删库 → 重启 → 等就绪（推荐）
+python sut/smoke_all.py                        # 冒烟：基础设施 + 正确行为对照 + 已知缺陷
+python sut/concurrency_experiment.py           # 并发实验：验证 SQLite 串行化对竞态的遮蔽
+python scripts/list_routes.py library          # 打印某服务的全部路由（OpenAPI 口径）
+python scripts/verify_lib02.py                 # 复核 D-LIB-02 的真实可复现形式
+```
+
+### 6.3 知识库与模型
 
 ```powershell
 # 构建全部预置知识库（已构建则重建）
@@ -534,8 +606,11 @@ python scripts/test_local_model.py             # 真实模型端到端（生成�
 python scripts/smoke_test.py
 python scripts/test_llm.py
 python scripts/test_app.py
+```
 
-# ---------- 用例 → pytest 脚本 → 真实执行 ----------
+### 6.4 用例 → pytest 脚本 → 真实执行
+
+```powershell
 # 用内置演示用例生成（免模型）
 python scripts/generate_tests.py --demo
 
@@ -557,9 +632,22 @@ python scripts/run_tests.py --with-mock --run-defects
 python scripts/test_executor.py
 ```
 
+### 6.5 代码与文档维护
+
+```powershell
+python scripts/audit_dependencies.py           # 依赖审计：列出"装了但用不到"的包（AST 扫描）
+python scripts/audit_dependencies.py --uninstall-orphans
+python scripts/audit_github_repo.py            # 审计已推送内容：敏感文件 / 大文件 / 密钥
+python scripts/github_publish.py --token <PAT> # 建仓库（幂等，不回显 token）
+python scripts/check_readme_toc.py             # 校验 README 目录锚点是否有效
+python scripts/tidy_readme.py                  # 整理 README 分隔线（幂等）
+```
+
 ---
 
-## 七、自动化执行层：从用例到真实执行
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 七、⚙️ 自动化执行层
 
 对话阶段产出的是**用例**，自动化执行层把它变成**能跑的测试**并真实执行。
 
@@ -579,7 +667,7 @@ python scripts/test_executor.py
 界面展示：通过/失败/待人工确认数量、失败用例清单、pytest 原始输出
 ```
 
-### 5.1 界面操作（推荐）
+### 7.1 界面操作（推荐）
 
 1. 打开应用 → 切到 **「⚙️ 生成并执行测试」** 页签；
 2. 「选择用例来源」三选一：
@@ -594,7 +682,7 @@ python scripts/test_executor.py
    - `自定义地址`：填任意 base_url；
 5. 结果区显示 通过 / 失败 / 待人工确认 / 耗时，失败用例清单，以及完整 pytest 输出。
 
-### 5.2 生成脚本的 5 条设计约定
+### 7.2 生成脚本的 5 条设计约定
 
 1. **绝不伪造断言**：AI 的自然语言断言能转成机器断言的就转（状态码、`code`、JSON 路径、
    包含/不包含、正则、响应时间、长度）；转不了的进「待人工确认」，生成 `xfail` 用例
@@ -607,7 +695,7 @@ python scripts/test_executor.py
 5. **零第三方硬依赖**：`executor/support.py` 优先用 `requests`，
    缺失时回退标准库 `http.client`，因此生成的脚本可整体复制到别的仓库运行。
 
-### 5.3 实测：生成的用例发现了真实缺陷
+### 7.3 实测：生成的用例发现了真实缺陷
 
 演示用例里保留了一条**负向契约用例** `TC-EC-015`：
 
@@ -636,7 +724,9 @@ python scripts/run_tests.py --with-mock --run-defects
 
 ---
 
-## 八、配置项说明（config.py / .env）
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 八、🔧 配置项说明
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -668,7 +758,9 @@ python scripts/run_tests.py --with-mock --run-defects
 
 ---
 
-## 九、后续如何扩展新的业务域知识库
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 九、➕ 扩展新的业务域
 
 **三步即可，无需改代码。**
 
@@ -731,7 +823,9 @@ python scripts/build_kb.py --reset
 
 ---
 
-## 十、能力边界与已实现范围
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 十、📌 能力边界
 
 **本阶段已实现**
 
@@ -776,7 +870,9 @@ headers / path_params / query / body / expect`）即为生成器的输入，
 
 ---
 
-## 十一、常见问题
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 十一、❓ 常见问题
 
 | 现象 | 原因与处理 |
 | --- | --- |
@@ -789,7 +885,7 @@ headers / path_params / query / body / expect`）即为生成器的输入，
 | `AttributeError: np.float_ was removed` | NumPy 2.x 与 chromadb 0.5.4 不兼容。锁回 `numpy>=1.26,<2.0`（连 `scipy<1.14`、`scikit-learn<1.6`、`pandas<2.3` 一并降，否则 scipy 又会要求 NumPy 2） |
 | `PermissionError: ...\.cache\huggingface` | 用户目录无写权限。程序已默认把缓存写到项目内 `storage/models`；也可手动设 `HF_HOME` |
 | 向量模型下载失败 | 国内直连 huggingface.co 不通。程序会自动切 `hf-mirror.com`；也可手动设 `HF_ENDPOINT=https://hf-mirror.com` |
-| 检索结果明显不相关 | 多半是「换了向量模型但没重建索引」。界面左侧会提示，点「♻️ 重建全部」即可（见「三、4.4」） |
+| 检索结果明显不相关 | 多半是「换了向量模型但没重建索引」。界面左侧会提示，点「♻️ 重建全部」即可（见「3.4 索引与向量模型不一致的自动防护」） |
 | 安装 `chroma-hnswlib` 失败（要编译） | 说明 Python 版本过新（3.13）或未用锁定版本。改用 Python 3.10~3.12，并保持 `chromadb==0.5.4` + `chroma-hnswlib==0.7.5` |
 | `ImportError: cannot import name '_ExtendedAttributes'` | opentelemetry 各子包版本不齐。保持 1.29.0 / 0.50b0 这一组（`requirements.txt` 已钉住） |
 | 启动时报 `No module named 'posthog'` / `'hnswlib'` | 依赖被 `--no-deps` 装漏了。按 `requirements.txt` 正常安装，或补装 `posthog`、`chroma-hnswlib==0.7.5` |
@@ -806,26 +902,63 @@ headers / path_params / query / body / expect`）即为生成器的输入，
 
 ---
 
-## 十二、验证记录（本机实测）
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
+
+## 十二、✅ 验证记录
+
+### 12.1 被测系统与接口自动化测试（核心验收项）
 
 | 验证项 | 命令 | 结果 |
 | --- | --- | --- |
-| 语法检查 | `python -m compileall app.py config.py tester.py llm rag prompts scripts` | ✅ 通过 |
+| 被测系统启动 | `python book_management/run.py` | ✅ `http://127.0.0.1:8101`，`/health` 200，Swagger `/docs` 可用，**17 个路径** |
+| 注册 / 登录 / 鉴权 | `pytest tests/test_user.py` | ✅ 注册落库（含**口令非明文**、bcrypt 前缀断言）、登录令牌可用、无令牌 401、**篡改签名 401**、**过期令牌 401**、越权 403 |
+| 图书 CRUD | `pytest tests/test_book.py` | ✅ 建书（库中库存 = 总册数）、改书（总册数同步调库存）、软删除、重复 ISBN 409、非法参数 422 |
+| 借书（含库断言） | `pytest tests/test_loan.py` | ✅ 库存 -1、借阅单状态 `BORROWED`、`return_date` 为空、读者 `borrowed_count` +1 |
+| **库存不足借书失败** | 同上 | ✅ 409 `NO_AVAILABLE_COPY`，且**失败后库存与借阅单均无副作用** |
+| 还书（含库断言） | 同上 | ✅ 库存 +1、状态 `RETURNED`、归还日期落库、逾期罚金记录与读者欠费同步 |
+| **普通回归** | `pytest tests` | ✅ **42 passed / 1 skipped**（同一数据库**连续两次运行结果一致**） |
+| **缺陷发现能力** | `pytest tests_defects` | ✅ **6 failed** = 抓到 6 条真实缺陷（见下表） |
+| 多域服务冒烟 | `python sut/smoke_all.py` | ✅ 四个服务的正常行为与全部已知缺陷均可触发（重置后**连续两次运行全绿**） |
+
+**被自动化用例抓到的 6 条缺陷**（`tests_defects/`，失败即证据）：
+
+| 缺陷 | 断言内容 | 实际表现 |
+| --- | --- | --- |
+| `D-LIB-01` | 登录失败应返回 401 | 返回 **500** |
+| `D-LIB-02` | 按 ISBN 搜索应命中 | 命中 **0 条**（检索未覆盖 ISBN） |
+| `D-LIB-03` | `pageSize=2` 应最多 2 条 | 返回 **25 条**（忽略分页） |
+| `D-LIB-05` | 重复还书应被拒绝 | 返回 **200**（库存多加） |
+| `D-LIB-06` | 10 元图书罚金上限应为 20 元 | **10 元**（上限用价格×1） |
+| `D-LIB-09` | 读者信息应含 `unpaidFine` | **字段缺失** |
+
+> 说明：`D-LIB-02` 原描述为「LIKE 大小写敏感」，实测 SQLite 对 ASCII **本就不区分大小写**，
+> 该描述不可复现；已更正为「检索未覆盖 ISBN」，复核脚本 `scripts/verify_lib02.py`。
+
+### 12.2 对话层与知识库
+
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| 语法检查 | `python -m compileall app.py config.py tester.py llm rag prompts executor scripts book_management book_api_test sut` | ✅ 通过 |
 | 依赖安装 | `pip install -r requirements.txt`（Windows + Python 3.12.10） | ✅ 153 个包安装成功，无解析冲突 |
-| 离线全链路自检 | `python scripts/smoke_test.py` | ✅ 24 项全部通过：三域索引（图书 41 / 电商 42 / 选课 41 片段 + 通用基线 22 片段）、中文检索命中 `BR-` 规则、提示词组装、用例解析（含 `\|` 转义）、执行用例 JSON/CSV/Gherkin 导出、粘贴文档入域与清除 |
-| 模型链路端到端 | `python scripts/test_llm.py` | ✅ 9 项全部通过：模型列表发现、连接自检、非流式/流式调用、AITester 生成→解析→导出、不可达地址抛出可读 `LLMError` |
-| 界面无头测试 | `python scripts/test_app.py` | ✅ 16 项全部通过：脚本执行无异常、AI 测试员角色展示、模型配置区/知识域单选/聊天输入/文档粘贴/上传组件齐全、切换知识域与切换 DeepSeek 无异常、粘贴文档触发分析不崩溃、执行页签切换/载入演示用例/生成脚本/运行按钮齐备 |
+| 依赖冗余审计 | `python scripts/audit_dependencies.py` | ✅ AST 扫描出 14 个「装了但用不到」的包（约 74 MB）并可一键卸载；同时识别出 `tiktoken` / `langsmith` 是 import 期硬依赖**不能删** |
+| 离线全链路自检 | `python scripts/smoke_test.py` | ✅ 24 项全部通过：三域索引、中文检索命中 `BR-` 规则、提示词组装、用例解析（含 `\|` 转义）、执行用例 JSON/CSV/Gherkin 导出、粘贴文档入域与清除 |
+| 模型链路端到端 | `python scripts/test_llm.py` | ✅ 9 项全部通过：模型列表发现、连接自检、非流式/流式调用、生成→解析→导出、不可达地址抛出可读 `LLMError` |
+| 界面无头测试 | `python scripts/test_app.py` | ✅ 16 项全部通过：AI 测试员角色展示、模型配置区/知识域单选/聊天输入/文档粘贴/上传组件齐全、切换知识域与切换 DeepSeek 无异常、执行页签齐备 |
 | 真实启动 | `streamlit run app.py --server.port 8509` | ✅ `/_stcore/health` 返回 200，页面正常提供 |
-| 自动化执行端到端 | `python scripts/test_executor.py` | ✅ 33 项全部通过：用例解析（含自然语言→机器断言、模糊断言转人工确认、**预期结果抽取**）、渲染产物（语法正确、无假断言、无模板转义残留）、自动起 Mock（随机端口非 8765）、默认执行 9 通过 1 跳过、显式运行负向用例**成功识别缺陷**（断言消息含「实际为 20」）、移除负向断言后 10 条全绿 |
-| 自动化执行打线上 | `python scripts/run_tests.py --env live` | ✅ 通过 10 / 失败 0（19.6s，直连 `https://fakestoreapi.com`） |
-| 缺陷发现（负向用例） | `python scripts/run_tests.py --with-mock --run-defects` | ✅ 主动暴露缺陷：`断言 [TC-EC-015] 期望 根节点 长度 == 5，实际为 20（该接口可能忽略了分页/过滤参数）` |
-| **真实本地模型** | `python scripts/test_local_model.py --max-tokens 8192` | ✅ 13 项全部通过：连通性（432 ms 探针）、模型名 `qwen3.5:4b`、RAG 检索、**73 秒生成 7087 字符**、解析出 **18 条结构化用例**（P0×3 / P1×4 / P2×11，覆盖正常 3 / 异常 5 / 边界 9 / 幂等 1）、**17/18 条预期结果被抽取为可执行断言**、流式输出 45 分片 |
-| 真实用例 → 可执行脚本 | `python scripts/generate_tests.py --input storage/execution/phase2_test_cases.json` | ✅ 模型生成的 16 条用例全部渲染为 pytest（`test_api_orders.py`），无假断言、无模板转义残留 |
-| 本地探测准确性 | `python scripts/setup_local_model.py` | ✅ 只识别出真实可用的 8080；排除代理劫持产生的幻觉端口与「Ollama 在跑但无模型」的假可用 |
+| 自动化执行端到端 | `python scripts/test_executor.py` | ✅ 33 项全部通过：用例解析（自然语言→机器断言、模糊断言转人工确认）、渲染产物（语法正确、**无假断言**、无模板转义残留）、自动起 Mock（随机端口）、负向用例成功识别缺陷 |
 | **知识库规模** | `python scripts/build_kb.py --stat` | ✅ 4 个业务域 / 15 个文件 / **146 个片段** / 约 49986 字符；规则编号 `BR-*` 82 处、`EC-*` 118 处、`CS-*` 117 处 |
 | **语义向量索引** | `python scripts/build_kb.py --reset` | ✅ 4 个域全部以 `sentence_transformer`（`BAAI/bge-small-zh-v1.5`，512 维）重建，状态全为「一致 OK」 |
-| **语义检索质量** | 改写提问（避开原文措辞）实测 | ✅ 「同一本书被很多人抢着借」→ 命中 `BR-01~BR-09`+`BR-15~18`；「钱付了但订单状态没更新」→ 命中 `EC-19~EC-23`；「抢最后一个名额按什么顺序」→ 命中 `CS-18~CS-21` |
-| **索引一致性防护** | 换向量模型后 `stale_domains()` | ✅ 能识别出 `hash` 索引与 `sentence_transformer` 不一致并要求重建（比 kind 而非仅比维度） |
+| **语义检索质量** | 改写提问（避开原文措辞）实测 | ✅ 「同一本书被很多人抢着借」→ 命中 `BR-01~BR-09`；「钱付了但订单状态没更新」→ 命中 `EC-19~EC-23`；「抢最后一个名额按什么顺序」→ 命中 `CS-18~CS-21` |
+| **索引一致性防护** | 换向量模型后 `stale_domains()` | ✅ 能识别 `hash` 索引与 `sentence_transformer` 不一致并要求重建（比 kind 而非仅比维度） |
+| README 排版自检 | `python scripts/check_readme_structure.py` | ✅ 代码围栏配对、12 个目录锚点全部有效、14 条分隔线无重复、每个一级章节都有返回目录导航 |
+
+### 12.3 真实本地模型
+
+| 验证项 | 命令 | 结果 |
+| --- | --- | --- |
+| **真实模型端到端** | `python scripts/test_local_model.py --max-tokens 8192` | ✅ 13 项全部通过：连通性（探针 460 ms）、模型名 `qwen3.5:4b`、RAG 检索、**73 秒生成 7087 字符**、解析出 **18 条结构化用例**（P0×3 / P1×4 / P2×11，覆盖正常 3 / 异常 5 / 边界 9 / 幂等 1）、**17/18 条预期结果被抽取为可执行断言** |
+| 真实用例 → 可执行脚本 | `python scripts/generate_tests.py --input storage/execution/phase2_test_cases.json` | ✅ 模型生成的 16 条用例全部渲染为 pytest，无假断言、无模板转义残留 |
+| 本地探测准确性 | `python scripts/setup_local_model.py` | ✅ 只识别真实可用的 8080；排除代理劫持产生的幻觉端口与「Ollama 在跑但无模型」的假可用 |
 
 ### 真实模型输出节选（证明可用性）
 
@@ -846,5 +979,9 @@ headers / path_params / query / body / expect`）即为生成器的输入，
 > ② 拉起 llama.cpp 后，最初的 `-c 16384 -np 4` 参数把 8 GB 显存吃满，服务被静默杀掉。
 > 现在用 `python scripts/start_local_model.py` 一条命令启动（`-c 8192 -np 1`），
 > 实测 44 tokens/s、探针 432 ms，README 中所有真实模型相关结论都基于这套配置复现。
+
+---
+
+<div align="right"><a href="#-目录">⬆ 返回目录</a></div>
 
 
