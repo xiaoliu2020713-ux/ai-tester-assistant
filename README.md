@@ -639,8 +639,11 @@ python scripts/audit_dependencies.py           # 依赖审计：列出"装了但
 python scripts/audit_dependencies.py --uninstall-orphans
 python scripts/audit_github_repo.py            # 审计已推送内容：敏感文件 / 大文件 / 密钥
 python scripts/github_publish.py --token <PAT> # 建仓库（幂等，不回显 token）
+python scripts/update_repo_meta.py             # 更新仓库描述与主题标签（需 GITHUB_TOKEN）
 python scripts/check_readme_toc.py             # 校验 README 目录锚点是否有效
+python scripts/check_readme_structure.py       # README 结构体检（围栏/层级/锚点/分隔线/导航）
 python scripts/tidy_readme.py                  # 整理 README 分隔线（幂等）
+python scripts/add_readme_nav.py               # 给章节批量加「返回目录」导航（幂等）
 ```
 
 ---
