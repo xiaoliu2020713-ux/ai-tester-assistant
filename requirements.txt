@@ -1,5 +1,5 @@
 # =============================================================================
-# AI 测试员助手平台 - 阶段一依赖
+# AI 测试员助手平台 - 依赖清单（阶段一 + 阶段二）
 #
 # 目标环境：Python 3.10 ~ 3.12（**推荐 3.11 / 3.12**）
 #   ⚠️ Windows + Python 3.13 下 chromadb 的向量索引后端 chroma-hnswlib
@@ -14,6 +14,9 @@
 # 如果 pip 在 langchain / chromadb 上长时间"卡住"（版本回溯），改用锁定安装：
 #   python scripts/resolve_deps.py
 #   pip install --no-deps --only-binary=:all: -r requirements.lock
+#
+# 校验依赖是否有"装了但用不到"的冗余（AST 扫描真实 import）：
+#   python scripts/audit_dependencies.py
 # =============================================================================
 
 # --- 前端界面 ---
@@ -23,11 +26,13 @@ streamlit>=1.36,<1.50
 openai>=1.40,<2.0
 
 # --- LangChain 核心（提示词组装、消息对象、文档切分）---
-# 说明：阶段一不使用 langchain-community 的社区集成（它会把 langgraph / kubernetes 等
-# 一大批无关依赖拉进来，并造成 langchain-core 版本冲突），因此只装必要组件。
 langchain-core>=0.3,<0.4
 langchain-text-splitters>=0.3,<0.4
 langchain-openai>=0.2,<0.4
+# LangChain 主包与社区集成：技术栈要求保留（app 侧不直接 import，
+# 但 langchain-openai / 生态工具会用到；已实测两者都不会被卸载影响）。
+langchain>=0.3,<0.4
+langchain-community>=0.3,<0.4
 
 # --- 向量库（RAG 持久化）---
 # 版本说明（本机实测结论，很关键）：
@@ -49,15 +54,12 @@ opentelemetry-sdk==1.29.0
 opentelemetry-proto==1.29.0
 opentelemetry-exporter-otlp-proto-common==1.29.0
 opentelemetry-exporter-otlp-proto-grpc==1.29.0
-opentelemetry-instrumentation==0.50b0
-opentelemetry-instrumentation-asgi==0.50b0
-opentelemetry-instrumentation-fastapi==0.50b0
 opentelemetry-semantic-conventions==0.50b0
-opentelemetry-util-http==0.50b0
+# 注：opentelemetry-instrumentation(-asgi/-fastapi) 与 opentelemetry-util-http
+#     已实测**可安全卸载**（chromadb 导入与检索均正常），因此不再声明。
 
 # --- 工具与数据处理 ---
 python-dotenv>=1.0.1
-tiktoken>=0.7.0
 requests>=2.32.0
 
 # ⚠️ NumPy 版本必须锁在 1.x：chromadb 0.5.4 内部仍使用 `np.float_`（NumPy 2.0 已移除），
@@ -88,3 +90,18 @@ sentence-transformers>=3.0.1
 torch>=2.2
 transformers>=4.40
 
+# =============================================================================
+# 阶段二：被测系统（FastAPI + SQLAlchemy + SQLite + JWT + passlib）+ 用例执行
+# =============================================================================
+fastapi>=0.110           # 被测系统 Web 框架
+uvicorn>=0.27            # ASGI 服务器
+sqlalchemy>=2.0          # ORM（SQLite 持久化）
+pydantic>=2.6            # 请求/响应模型校验
+python-jose[cryptography]>=3.3   # JWT（HS256）
+passlib[bcrypt]>=1.7.4   # 密码哈希
+# ⚠️ bcrypt 必须锁 4.0.1：bcrypt 5.x 移除了 `__about__`，passlib 1.7.4 读取它会报
+#    `AttributeError: module 'bcrypt' has no attribute '__about__'`，
+#    且 5.x 对 >72 字节口令直接抛 ValueError。
+bcrypt==4.0.1
+pytest>=8.0              # 生成的测试脚本执行器
+pyyaml>=6.0              # 被测系统配置 / 用例文件

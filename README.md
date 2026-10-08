@@ -68,6 +68,8 @@ python sut/run_service.py all --background
 python sut/run_service.py --status           # 应显示 4 个 🟢 运行中
 
 # ② 冒烟自检：基础设施（JWT/401/403/404/422）+ 正确行为对照 + 44 条已知缺陷
+#    ⚠️ 冒烟断言依赖种子数据，反复运行前请先重置：
+#    python sut/reset_and_restart.py
 python sut/smoke_all.py                      # 期望：✅ 全部通过
 
 # ③ 用内置演示用例生成 pytest 脚本并执行（会真的发现被测服务缺陷）

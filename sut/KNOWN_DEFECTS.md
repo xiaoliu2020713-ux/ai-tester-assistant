@@ -152,17 +152,42 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8101/loans/L002/return -Headers 
 
 ## 6. 一键验证
 
-```powershell
-# 启动四个服务（后台 + PID 记录）
-python sut/run_service.py all --background
+> ⚠️ **冒烟自检需要干净的数据库**：`smoke_all.py` 的断言依赖种子数据（课程名额、优惠券状态、
+> 账户余额、图书可借册数等），在同一个数据库上反复跑会因为累计状态出现"看似失败"。
+> 因此**每次跑冒烟前先重置**（一条命令搞定）。
 
-# 冒烟自检：基础设施（JWT/401/403/404/422）+ 正确行为对照 + 每条已知缺陷
+```powershell
+# ① 一键重置：停服务 → 删 SQLite → 重启 → 等就绪
+python sut/reset_and_restart.py
+
+# ② 冒烟自检：基础设施（JWT/401/403/404/422）+ 正确行为对照 + 每条已知缺陷
 python sut/smoke_all.py
 
-# 并发实验：验证 SQLite 串行化对竞态的遮蔽效应
+# ③ 并发实验：验证 SQLite 串行化对竞态的遮蔽效应
 python sut/concurrency_experiment.py
 
-# 停止 / 重置数据库
-python sut/run_service.py all --stop
-python sut/run_service.py --reset-db
+# 单独控制服务
+python sut/run_service.py all --background   # 启动
+python sut/run_service.py --status           # 探活
+python sut/run_service.py all --stop         # 停止
+python sut/run_service.py --reset-db         # 只删数据库（需先停服务）
 ```
+
+## 7. 依赖冗余核查
+
+```powershell
+# AST 扫描项目真实 import，列出「装了但代码从不用」的包
+python scripts/audit_dependencies.py
+
+# 直接卸载确认无关的包（会先打印清单）
+python scripts/audit_dependencies.py --uninstall-orphans
+```
+
+**实测结论**（已在本机执行并回归通过）：
+
+| 类别 | 包 | 处理 |
+| --- | --- | --- |
+| 无关 · 已卸载 | `kubernetes`(70.4MB)、`langgraph*`(2.0MB)、`langchain-classic`、`langchain-protocol`、`httpx2`、`httpcore2` | 删除，节省约 **74 MB** |
+| 无关 · 已卸载 | `posthog`、`opentelemetry-instrumentation(-asgi/-fastapi)`、`opentelemetry-util-http` | 删除，chromadb 导入与检索实测正常 |
+| **看着无关、实为硬依赖** | `tiktoken`（langchain_openai 顶层 import）、`langsmith`（langchain_core 必需） | **必须保留**，删了直接 ImportError |
+
