@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "default_domain": "library",
+  "domains": [
+    {
+      "key": "library",
+      "name": "图书管理系统",
+      "description": "图书馆业务：图书编目、读者管理、借阅归还、续借预约、罚金与库存。",
+      "path": "library",
+      "collection": "domain_library",
+      "keywords": ["图书", "借阅", "归还", "续借", "预约", "罚金", "库存", "读者", "isbn"],
+      "documents": [
+        "01_business_rules.md",
+        "02_test_scenarios.md",
+        "03_case_templates.md",
+        "04_api_examples.md"
+      ]
+    },
+    {
+      "key": "ecommerce",
+      "name": "电商平台",
+      "description": "电商业务：商品与SKU、购物车、下单结算、支付、优惠券、库存扣减、订单履约与售后。",
+      "path": "ecommerce",
+      "collection": "domain_ecommerce",
+      "keywords": ["商品", "订单", "支付", "购物车", "sku", "优惠券", "库存", "退款", "物流"],
+      "documents": [
+        "01_business_rules.md",
+        "02_test_scenarios.md",
+        "03_case_templates.md",
+        "04_api_examples.md"
+      ]
+    },
+    {
+      "key": "course",
+      "name": "学生选课系统",
+      "description": "教务业务：课程与教学班、选课退课、容量与冲突校验、学分上限、成绩与学籍。",
+      "path": "course",
+      "collection": "domain_course",
+      "keywords": ["选课", "退课", "课程", "教学班", "学分", "冲突", "容量", "成绩", "培养方案"],
+      "documents": [
+        "01_business_rules.md",
+        "02_test_scenarios.md",
+        "03_case_templates.md",
+        "04_api_examples.md"
+      ]
+    },
+    {
+      "key": "common",
+      "name": "通用测试基线",
+      "description": "跨业务域通用：测试设计方法、用例编写规范、接口测试基线检查项、常见缺陷模式。",
+      "path": "common",
+      "collection": "domain_common",
+      "keywords": ["测试用例", "边界值", "等价类", "接口测试", "鉴权", "幂等", "并发", "异常"],
+      "documents": [
+        "01_test_design_methods.md",
+        "02_case_writing_standard.md",
+        "03_api_baseline_checklist.md"
+      ]
+    }
+  ]
+}

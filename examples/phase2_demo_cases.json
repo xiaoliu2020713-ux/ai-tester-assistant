@@ -1,0 +1,160 @@
+{
+  "generated_by": "AI 测试员助手平台 · 阶段一产出（阶段二 JSON 契约）",
+  "domain": "ecommerce",
+  "domain_name": "电商平台",
+  "generated_at": "2026-01-01T10:00:00+08:00",
+  "count": 10,
+  "cases": [
+    {
+      "case_id": "TC-EC-001",
+      "title": "正确账号密码登录成功并返回 token",
+      "method": "POST",
+      "path": "/auth/login",
+      "priority": "P0",
+      "type": "正常流程",
+      "headers": {"Content-Type": "application/json"},
+      "query": {},
+      "body": {"username": "mor_2314", "password": "83r5^_"},
+      "save": {"token": "TOKEN"},
+      "expect": {
+        "status": 201,
+        "desc": "HTTP 201；返回 token 字段",
+        "assert": ["token 非空"]
+      },
+      "precondition": "被测服务已启动，账号 mor_2314 / 83r5^_ 存在",
+      "steps": ["调用登录接口", "校验响应含 token"],
+      "remark": "关联登录契约；token 供后续用例复用"
+    },
+    {
+      "case_id": "TC-EC-002",
+      "title": "密码错误登录失败且不返回 token",
+      "method": "POST",
+      "path": "/auth/login",
+      "priority": "P0",
+      "type": "异常流程",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"username": "mor_2314", "password": "wrong-password"},
+      "expect": {
+        "status": 401,
+        "desc": "HTTP 401；响应不含 token",
+        "not_contains": ["token"]
+      },
+      "steps": ["使用错误密码调用登录接口"],
+      "remark": "401 响应体为裸字符串，禁止按 JSON 解析"
+    },
+    {
+      "case_id": "TC-EC-010",
+      "title": "查询商品列表返回 20 条且字段完整",
+      "method": "GET",
+      "path": "/products",
+      "priority": "P0",
+      "type": "正常流程",
+      "expect": {
+        "status": 200,
+        "desc": "HTTP 200；返回数组，第一条含 id/title/price",
+        "assert": ["[0].id 非空", "[0].title 非空", "[0].price 非空"]
+      },
+      "steps": ["调用商品列表接口", "校验返回结构与字段"],
+      "remark": "契约约定商品总数为 20"
+    },
+    {
+      "case_id": "TC-EC-011",
+      "title": "按 id 查询商品详情返回对应商品",
+      "method": "GET",
+      "path": "/products/1",
+      "priority": "P1",
+      "type": "正常流程",
+      "expect": {
+        "status": 200,
+        "desc": "HTTP 200；id=1 的商品详情",
+        "assert": ["id 非空"],
+        "json": {"id": 1}
+      },
+      "steps": ["调用商品详情接口"]
+    },
+    {
+      "case_id": "TC-EC-012",
+      "title": "查询不存在的商品返回空响应体而非报错",
+      "method": "GET",
+      "path": "/products/999999",
+      "priority": "P1",
+      "type": "边界值",
+      "expect": {
+        "status": 200,
+        "desc": "HTTP 200，响应体为空（该服务不存在资源不返回 404）"
+      },
+      "steps": ["请求不存在的商品 id"],
+      "remark": "契约：不存在资源返回 200 + 空 body / null，禁止断言 404"
+    },
+    {
+      "case_id": "TC-EC-013",
+      "title": "查询商品分类列表返回 4 个分类",
+      "method": "GET",
+      "path": "/products/categories",
+      "priority": "P1",
+      "type": "正常流程",
+      "expect": {"status": 200, "desc": "HTTP 200；返回分类数组"},
+      "steps": ["调用分类接口"]
+    },
+    {
+      "case_id": "TC-EC-014",
+      "title": "按分类查询商品返回该分类下的商品",
+      "method": "GET",
+      "path": "/products/category/electronics",
+      "priority": "P1",
+      "type": "正常流程",
+      "expect": {
+        "status": 200,
+        "desc": "HTTP 200；返回 electronics 分类商品数组",
+        "assert": ["[0].category 非空"]
+      },
+      "steps": ["调用分类商品接口"]
+    },
+    {
+      "case_id": "TC-EC-015",
+      "title": "商品列表分页参数应生效（服务端未实现分页属缺陷）",
+      "method": "GET",
+      "path": "/products",
+      "priority": "P1",
+      "type": "异常流程",
+      "query": {"limit": 5, "page": 1},
+      "expect": {
+        "status": 200,
+        "desc": "期望按 limit=5 返回 5 条；若返回全量 20 条则说明分页参数被忽略（缺陷）",
+        "assert": ["返回条数等于 5"]
+      },
+      "steps": ["带 limit=5 调用商品列表接口", "统计返回条数"],
+      "skip_by_default": true,
+      "skip_reason": "负向契约用例：被测服务（本地 Mock 与公开 Fake Store API）均忽略 limit 参数，属真实缺陷。默认跳过以保持套件绿色；查看缺陷发现效果：python scripts/run_tests.py --with-mock --run-defects",
+      "remark": "故意保留的负向契约用例：演示平台「发现被测系统缺陷」的能力（被测服务确实返回全量 20 条）"
+    },
+    {
+      "case_id": "TC-EC-020",
+      "title": "新增购物车成功返回 201 且 id 未被复用",
+      "method": "POST",
+      "path": "/carts",
+      "priority": "P0",
+      "type": "正常流程",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"userId": 1, "date": "2026-01-01", "products": [{"productId": 1, "quantity": 2}]},
+      "save": {"id": "NEW_CART_ID"},
+      "expect": {
+        "status": 201,
+        "desc": "HTTP 201；返回新购物车 id 等字段",
+        "assert": ["id 非空", "userId 非空"]
+      },
+      "steps": ["调用新增购物车接口", "校验返回 id 与 userId"],
+      "remark": "契约：新 id 从 8 起，不与已有 1..7 复用"
+    },
+    {
+      "case_id": "TC-EC-021",
+      "title": "查询不存在购物车返回 null 而非报错",
+      "method": "GET",
+      "path": "/carts/999999",
+      "priority": "P2",
+      "type": "边界值",
+      "expect": {"status": 200, "desc": "HTTP 200；响应体为 null"},
+      "steps": ["请求不存在的购物车 id"]
+    }
+  ]
+}

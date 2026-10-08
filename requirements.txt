@@ -1,0 +1,90 @@
+# =============================================================================
+# AI 测试员助手平台 - 阶段一依赖
+#
+# 目标环境：Python 3.10 ~ 3.12（**推荐 3.11 / 3.12**）
+#   ⚠️ Windows + Python 3.13 下 chromadb 的向量索引后端 chroma-hnswlib
+#      没有预编译 wheel（需 MSVC 编译），因此不建议使用 3.13。
+#
+# 安装（推荐流程，已实测）：
+#   python -m venv .venv
+#   .\.venv\Scripts\activate               # Windows PowerShell
+#   # source .venv/bin/activate            # macOS / Linux
+#   pip install -r requirements.txt
+#
+# 如果 pip 在 langchain / chromadb 上长时间"卡住"（版本回溯），改用锁定安装：
+#   python scripts/resolve_deps.py
+#   pip install --no-deps --only-binary=:all: -r requirements.lock
+# =============================================================================
+
+# --- 前端界面 ---
+streamlit>=1.36,<1.50
+
+# --- 大模型调用（OpenAI 兼容：本地 127.0.0.1:8080 / DeepSeek / 其他）---
+openai>=1.40,<2.0
+
+# --- LangChain 核心（提示词组装、消息对象、文档切分）---
+# 说明：阶段一不使用 langchain-community 的社区集成（它会把 langgraph / kubernetes 等
+# 一大批无关依赖拉进来，并造成 langchain-core 版本冲突），因此只装必要组件。
+langchain-core>=0.3,<0.4
+langchain-text-splitters>=0.3,<0.4
+langchain-openai>=0.2,<0.4
+
+# --- 向量库（RAG 持久化）---
+# 版本说明（本机实测结论，很关键）：
+#   chromadb 0.5.5 及以上把 chroma-hnswlib 钉死为 ==0.7.6，而 0.7.6 **没有 Windows 的
+#   cp312 wheel**（只有 cp310/cp311 + macOS/Linux），在 Python 3.12 上会安装失败；
+#   chromadb 0.5.4 依赖 chroma-hnswlib==0.7.5，而 0.7.5 提供了 cp312-win_amd64 wheel。
+#   因此这里锁定到 0.5.4：Python 3.10~3.12 均可直接 pip 安装成功。
+chromadb>=0.5.4,<=0.5.4
+chroma-hnswlib==0.7.5
+# chromadb 在 import 阶段就会实例化其默认 embedding function，该函数依赖 onnxruntime；
+# 即使我们始终显式传入向量（不使用默认模型），也必须安装它，否则 import chromadb 直接报错。
+onnxruntime>=1.20
+# chromadb 的遥测链路会 import opentelemetry 的若干模块。这些包必须整族版本对齐：
+# 例如 opentelemetry-api 1.45 移除了 `_ExtendedAttributes`，而 1.44 的
+# opentelemetry-exporter-otlp-proto-common 仍在导入它 → ImportError。
+# 这里统一钉在上游长期稳定且相互兼容的 1.29 / 0.50b0 版本线上。
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-proto==1.29.0
+opentelemetry-exporter-otlp-proto-common==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-instrumentation==0.50b0
+opentelemetry-instrumentation-asgi==0.50b0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-semantic-conventions==0.50b0
+opentelemetry-util-http==0.50b0
+
+# --- 工具与数据处理 ---
+python-dotenv>=1.0.1
+tiktoken>=0.7.0
+requests>=2.32.0
+
+# ⚠️ NumPy 版本必须锁在 1.x：chromadb 0.5.4 内部仍使用 `np.float_`（NumPy 2.0 已移除），
+# 装 NumPy 2.x 会在写入向量时报 `AttributeError: np.float_ was removed`。
+numpy>=1.26,<2.0
+# scipy / scikit-learn / pandas 也要与 NumPy 1.x 对齐：
+# scipy>=1.14 起要求 NumPy>=2.0，会让 sentence-transformers 直接导入失败并回退到哈希向量。
+scipy>=1.11,<1.14
+scikit-learn>=1.4,<1.6
+pandas>=2.1,<2.3
+
+# --- 文件解析（.txt / .md / .json 内置支持，pdf/docx 为可选扩展）---
+pypdf>=4.3.0
+python-docx>=1.1.2
+
+# --- 可选：本地语义向量模型（默认已启用，显著提升中文检索召回）---
+# 组成：sentence-transformers + torch(CPU) + transformers；模型 BAAI/bge-small-zh-v1.5（约 95 MB）
+# 国内网络不便直连 huggingface.co 时，程序会自动切到镜像 hf-mirror.com，
+# 并把模型缓存写入项目内 `storage/models`（避免用户目录无写权限的问题）。
+#
+# 安装（torch 必须用 CPU 源，否则会拉入 2GB+ 的 CUDA 包）：
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install sentence-transformers transformers scipy scikit-learn
+#
+# 不安装也能运行：会自动回退到「本地 8080 的 /v1/embeddings 接口」→「内置哈希向量」，
+# 界面左侧会显示当前实际生效的向量模型。
+sentence-transformers>=3.0.1
+torch>=2.2
+transformers>=4.40
+
