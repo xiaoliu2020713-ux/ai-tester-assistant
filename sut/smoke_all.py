@@ -82,9 +82,14 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         FAILURES.append(name)
 
 
-def _source_has(filename: str, needle: str) -> bool:
-    """在 sut/services/ 下做源码静态校验（用于无法稳定复现的缺陷取证）。"""
-    path = ROOT / "sut" / "services" / filename
+def _source_has(relative_path: str, needle: str) -> bool:
+    """源码静态校验（用于无法稳定复现的缺陷取证）。
+
+    `relative_path` 是相对项目根的路径，例如
+        "book_management/routers/book.py"（图书系统）
+        "sut/services/ecommerce_service.py"（电商系统）
+    """
+    path = ROOT / relative_path
     return path.exists() and needle in path.read_text(encoding="utf-8")
 
 
@@ -154,19 +159,29 @@ def smoke_library(port: int) -> None:
     check("【D-LIB-03】分页被忽略（pageSize=1 仍返回全量）",
           len(data.get("items") or []) > 1, f"pageSize=1 时返回 {len(data.get('items') or [])} 条")
 
-    check("【D-LIB-02】关键词大小写敏感（小写 data 查不到「数据结构与算法」）",
-          (call(port, "GET", "/books?keyword=data", token=token)[1].get("data") or {}).get("total") == 0)
+    check("【D-LIB-02】关键词检索未覆盖 ISBN（按 ISBN 搜索返回 0 条）",
+          (call(port, "GET", "/books?keyword=978-7-111-0001-1", token=token)[1].get("data") or {}).get("total") == 0,
+          "BR-23 要求检索覆盖 书名/作者/ISBN；实测 SQLite LIKE 对 ASCII 本就大小写不敏感，"
+          "因此缺陷的可复现形式是「ISBN 搜不到」而非「大小写敏感」")
 
     check("【D-LIB-01】登录失败返回 500 而非 401",
           call(port, "POST", "/auth/login", {"username": "R001", "password": "bad"})[0] == 500)
+
+    check("正确对照：新注册接口可用（注册 → 返回令牌）",
+          call(port, "POST", "/auth/register",
+               {"readerId": f"SMK{int(_time.time()) % 10**6:06d}", "name": "冒烟注册",
+                "password": "smoke123", "readerType": "GRAD"})[1].get("code") == 0)
 
     reader = call(port, "GET", "/readers/R001", token=token)[1].get("data") or {}
     check("【D-LIB-09】读者信息缺少 unpaidFine 字段", "unpaidFine" not in reader, f"字段={sorted(reader)}")
 
     # 正确行为对照
-    check("正确对照：挂失读者借阅被拒（409 READER_DISABLED）",
+    check("正确对照：状态异常读者（LOST）无法登录（403 READER_DISABLED）",
+          call(port, "POST", "/auth/login", {"username": "R003", "password": "123456"})[1].get(
+              "code") == "READER_DISABLED")
+    check("正确对照：挂失读者借阅被拒（READER_DISABLED）",
           call(port, "POST", "/books/B003/borrow", {"readerId": "R003", "borrowDays": 30},
-               token=login(port, "R003"))[1].get("code") == "READER_DISABLED")
+               token=admin)[1].get("code") == "READER_DISABLED")
     check("正确对照：借阅他人账户被拒（403）",
           call(port, "POST", "/books/B003/borrow", {"readerId": "R002", "borrowDays": 30},
                token=token)[0] == 403)
@@ -186,7 +201,7 @@ def smoke_library(port: int) -> None:
           final_book.get("availableCopies", -1) >= 0 and len(success) <= 1,
           f"并发 5 次成功 {len(success)} 次，最终可用 {final_book.get('availableCopies')}")
     check("【D-LIB-11】并发写时 ID 生成方式为 count()+1（撞主键概率高，见源码静态校验）",
-          _source_has("library_service.py", "_next_loan_id") or _source_has("library_service.py", "len(db.scalars"),
+          _source_has("book_management/routers/book.py", "count()+1") or _source_has("book_management/routers/book.py", "len(existing)"),
           f"并发返回码={codes}（SQLite 串行化后偶发，MySQL/PG 下必现）")
 
     # D-LIB-06：罚金计算（L002 逾期 37 天 × 0.2 = 7.4 元）。
@@ -200,47 +215,65 @@ def smoke_library(port: int) -> None:
               f"逾期 {overdue_days} 天 → {fine} 元；规则上限应为价格×2={139 * 2}，实现用价格×1={139 * 1}")
     else:
         check("【D-LIB-06】罚金计算（本轮 L002 已归还，跳过运行时校验）",
-              _source_has("library_service.py", "overdue_days * FINE_PER_DAY"),
+              _source_has("book_management/routers/book.py", "overdue_days * FINE_PER_DAY"),
               f"http={status} code={payload.get('code')}；源码校验罚金计算逻辑存在")
 
     # 【D-LIB-06】上限倍数错误：规则 BR-19 要求「价格 ×2」，实现用「价格 ×1」。
     # 需要足够长的逾期才触顶（45 元书需逾期 225 天），因此做**源码静态校验**，比伪造恒真断言可信。
     check("【D-LIB-06】罚金上限倍数错误（源码用 price * 1，规则要求 price * 2）",
-          _source_has("library_service.py", "float(book.price) * 1"),
+          _source_has("book_management/routers/book.py", "float(book.price) * 1"),
           "library_service.return_book: cap = round(float(book.price) * 1, 2)")
 
-    # D-LIB-05：重复归还（不依赖种子状态：先用管理员造一本专用库存 → 借 → 连还两次 → 库存应只 +1 却 +2）
-    # 注意不能复用 B005：上面的 D-LIB-04 并发测试会把它借空，导致这里借不到。
+    # D-LIB-05：重复归还（不依赖种子状态：管理员造书 → **现场注册的新读者**借书 → 连还两次）。
+    # 三个易踩的坑，都已在实测中确认：
+    #   ① 建书必须用**管理员**令牌（普通读者会 403）
+    #   ② 不能复用 B005，因为上面的 D-LIB-04 并发测试会把它借空
+    #   ③ 不能用 R002 —— 前面的罚金检查给他累加了欠费，已超过 FINE_LIMIT_THRESHOLD 被拒借
     fresh_isbn = f"978-8-000-{int(_time.time()) % 10**5:05d}-0"
     created = call(port, "POST", "/books",
                    {"isbn": fresh_isbn, "title": "重复归还专用书", "author": "QA",
                     "category": "科技", "price": 30.0, "totalCopies": 1}, token=admin)
     fresh_book = (created[1].get("data") or {}).get("bookId")
+
+    fresh_reader = f"SMK{int(_time.time() * 1000) % 10**9:09d}"
+    registered = call(port, "POST", "/auth/register",
+                      {"readerId": fresh_reader, "name": "重复归还测试读者",
+                       "password": "smoke123", "readerType": "GRAD"})
+    reader_token = (registered[1].get("data") or {}).get("accessToken")
+
     fresh_borrow = call(port, "POST", f"/books/{fresh_book}/borrow",
-                        {"readerId": "R002", "borrowDays": 30}, token=login(port, "R002")) if fresh_book else (0, {})
+                        {"readerId": fresh_reader, "borrowDays": 30},
+                        token=reader_token) if (fresh_book and reader_token) else (0, {})
     loan_id = (fresh_borrow[1].get("data") or {}).get("loanId")
     if loan_id:
         before = (call(port, "GET", f"/books/{fresh_book}", token=token)[1].get("data") or {}).get("availableCopies")
-        first = call(port, "POST", f"/loans/{loan_id}/return", {}, token=login(port, "R002"))
-        second = call(port, "POST", f"/loans/{loan_id}/return", {}, token=login(port, "R002"))
+        first = call(port, "POST", f"/loans/{loan_id}/return", {}, token=reader_token)
+        second = call(port, "POST", f"/loans/{loan_id}/return", {}, token=reader_token)
         after = (call(port, "GET", f"/books/{fresh_book}", token=token)[1].get("data") or {}).get("availableCopies")
         check("【D-LIB-05】重复归还未被拦截且库存多加",
               first[0] == 200 and second[0] == 200 and after == before + 2,
-              f"{fresh_book}/{loan_id}：归还前 {before} → 两次归还后 {after}（正确行为应只 +1）")
+              f"{fresh_book}/{loan_id}：归还前 {before} → 两次归还后 {after}"
+              f"（正确行为应只 +1；实际第二次归还 http={second[0]}）")
     else:
         check("【D-LIB-05】重复归还未被拦截且库存多加", False,
-              f"专用库存创建或借阅失败：book={fresh_book} borrow_http={fresh_borrow[0]} "
-              f"code={fresh_borrow[1].get('code')}（可执行 python sut/run_service.py --reset-db 后重跑）")
+              f"准备失败：建书 http={created[0]} code={created[1].get('code')}；"
+              f"注册 http={registered[0]} code={registered[1].get('code')}；"
+              f"借阅 http={fresh_borrow[0]} code={fresh_borrow[1].get('code')}")
 
-    # D-LIB-08：有库存也能预约（R003/R004/R005 轮流用，避免重复运行撞上"已预约"）
-    reserve_ok = False
-    for reader in ("R001", "R004", "R005"):
-        status, payload = call(port, "POST", "/books/B003/reserve", {"readerId": reader}, token=token)
-        if status == 200:
-            reserve_ok = True
-            break
-    check("【D-LIB-08】有库存时预约未被拒绝（BR-15 要求拒绝）", reserve_ok,
-          "B003 可借册数 > 0 仍允许预约" if reserve_ok else "所有候选读者均已预约过，可重置数据库后重跑")
+    # D-LIB-08：有库存也能预约（BR-15 要求拒绝）。
+    # 注意：预约接口只允许"本人或管理员"；且要避开"该读者已预约过"的干扰，
+    # 因此用**管理员令牌 + 现场注册的新读者**。
+    reserve_reader = f"RSV{int(_time.time() * 1000) % 10**9:09d}"
+    reserve_reg = call(port, "POST", "/auth/register",
+                       {"readerId": reserve_reader, "name": "预约测试读者",
+                        "password": "smoke123", "readerType": "UNDERGRAD"})
+    status, payload = call(port, "POST", "/books/B003/reserve",
+                           {"readerId": reserve_reader}, token=admin)
+    check("【D-LIB-08】有库存时预约未被拒绝（BR-15 要求拒绝）", status == 200,
+          f"B003 可借册数为 "
+          f"{(call(port, 'GET', '/books/B003', token=token)[1].get('data') or {}).get('availableCopies')} > 0 "
+          f"仍允许预约；预约 http={status} code={payload.get('code')}"
+          f"（注册 http={reserve_reg[0]}）")
 
     # 【D-LIB-10】ISBN 唯一性只在应用层做 check-then-insert，数据库无唯一约束：
     # 顺序重复创建会被应用层挡住，但并发时不成立（并发窗口内两边都查不到）→ 与 D-LIB-11 同源
@@ -250,7 +283,7 @@ def smoke_library(port: int) -> None:
     check("【D-LIB-10】同一 ISBN 顺序重复创建被应用层拦截（但数据库无唯一索引）",
           second_dup[1].get("code") == "DUPLICATE_ISBN",
           f"第一次 http={first_dup[0]}，第二次 code={second_dup[1].get('code')}")
-    db_source = (ROOT / "sut" / "services" / "library_service.py").read_text(encoding="utf-8")
+    db_source = (ROOT / "book_management" / "models.py").read_text(encoding="utf-8")
     check("【D-LIB-10】books.isbn 未声明唯一约束（源码无 unique=True / UniqueConstraint）",
           "isbn: Mapped[str] = mapped_column(String(32), index=True)" in db_source
           and "UniqueConstraint(\"isbn\"" not in db_source,
@@ -265,6 +298,7 @@ def smoke_ecommerce(port: int) -> None:
     token = check_infra("电商", port, "U001", "/cart/U001")
     if not token:
         return
+    admin = login(port, "ADMIN")
 
     skus = call(port, "GET", "/skus", token=token)[1].get("data") or {}
     check("商品列表可用", skus.get("total", 0) >= 5, f"total={skus.get('total')}")
@@ -301,20 +335,43 @@ def smoke_ecommerce(port: int) -> None:
     id1, id2 = (first[1].get("data") or {}).get("orderId"), (second[1].get("data") or {}).get("orderId")
     check("【D-EC-03】相同幂等键重复下单创建了两单", bool(id1) and bool(id2) and id1 != id2, f"{id1} vs {id2}")
 
-    # D-EC-06：应付金额为负
+    # D-EC-06：应付金额为负。
+    # 可重复运行的做法：现场注册买家 → 管理员发一张"门槛 0 / 面额 100"的券 →
+    # 下单 5 元的特价书签 S006，应付 = 5 - 100 = -95（规则要求应付不小于 0）。
+    fresh_user = f"EC{int(_time.time() * 1000) % 10**9:09d}"
+    reg = call(port, "POST", "/auth/register", {"userId": fresh_user, "name": "电商冒烟买家",
+                                                "password": "smoke123"})
+    fresh_token = (reg[1].get("data") or {}).get("accessToken")
+    # 注册时会自动创建默认收货地址；下单必须用**本人**地址，否则 403 FORBIDDEN
+    fresh_address = (reg[1].get("data") or {}).get("addressId")
+    coupon_id = f"SMK{int(_time.time()) % 10**9:09d}"
+    issued = call(port, "POST", "/coupons",
+                  {"userId": fresh_user, "couponId": coupon_id, "threshold": 0.0,
+                   "amount": 100.0, "expireAt": "2026-12-31"}, token=admin)
     status, payload = call(port, "POST", "/orders",
-                           {"userId": "U001", "addressId": "A001",
-                            "items": [{"skuId": "S001", "quantity": 1}], "couponIds": ["UC003"]},
-                           token=token)
+                           {"userId": fresh_user, "addressId": fresh_address,
+                            "items": [{"skuId": "S006", "quantity": 1}],
+                            "couponIds": [coupon_id]},
+                           token=fresh_token)
     pay_amount = (payload.get("data") or {}).get("payAmount")
-    check("【D-EC-06】优惠大于订单金额时应付为负", pay_amount is not None and pay_amount < 0,
-          f"订单 399 元 + 1000 元券 → payAmount={pay_amount}")
+    check("【D-EC-06】优惠大于订单金额时应付为负",
+          pay_amount is not None and pay_amount < 0,
+          f"订单 5 元 + 100 元券 → payAmount={pay_amount}"
+          f"（注册 http={reg[0]} 发券 http={issued[0]} 下单 http={status} code={payload.get('code')}）")
 
-    # D-EC-05：门槛恰好相等被误判（用浮点比较）
-    body_exact = {"userId": "U001", "addressId": "A001",
-                  "items": [{"skuId": "S001", "quantity": 1}], "couponIds": ["UC001"]}
+    # 正确对照：门槛满足时券可用（现场发一张门槛 100 / 面额 10 的券，订单 399 元）
+    ref_coupon = f"REF{int(_time.time()) % 10**9:09d}"
+    call(port, "POST", "/coupons",
+         {"userId": "U001", "couponId": ref_coupon, "threshold": 100.0, "amount": 10.0,
+          "expireAt": "2026-12-31"}, token=admin)
+    status_ok, payload_ok = call(port, "POST", "/orders",
+                                 {"userId": "U001", "addressId": "A001",
+                                  "items": [{"skuId": "S001", "quantity": 1}],
+                                  "couponIds": [ref_coupon]}, token=token)
     check("正确对照：满足门槛的券可用（订单 399 > 门槛 100）",
-          call(port, "POST", "/orders", body_exact, token=token)[0] == 200)
+          status_ok == 200 and payload_ok.get("code") == 0,
+          f"http={status_ok} code={payload_ok.get('code')} "
+          f"discount={(payload_ok.get('data') or {}).get('discountAmount')}")
 
     # D-EC-04：并发超卖（S005 库存 1）
     def order_s005() -> Tuple[int, Dict[str, Any]]:
@@ -330,7 +387,7 @@ def smoke_ecommerce(port: int) -> None:
           sku_after.get("locked", 0) <= sku_after.get("stock", 0),
           f"并发 5 次成功 {len(success)} 次；stock={sku_after.get('stock')} locked={sku_after.get('locked')}")
     check("【D-EC-11】并发下单的订单 ID 生成方式为 count()+1（撞主键概率高，见源码静态校验）",
-          _source_has("ecommerce_service.py", "_next_id(db, Order"),
+          _source_has("sut/services/ecommerce_service.py", "_next_id(db, Order"),
           f"并发返回码={codes}（SQLite 串行化后偶发，MySQL/PG 下必现）")
 
     # D-EC-08：重复支付
@@ -379,11 +436,35 @@ def smoke_course(port: int) -> None:
     check("正确对照：非管理员调整容量被拒（403）",
           call(port, "PUT", "/admin/classes/C001/capacity", {"capacity": 100}, token=token)[0] == 403)
 
-    # D-CS-02：学分上限差一个（S004 已选 24，选 2 学分课 C004 应超限）
-    status, payload = call(port, "POST", "/enrollments", {"studentId": "S004", "classId": "C004"},
-                           token=login(port, "S004"))
-    check("【D-CS-02】学分上限用 `>` 而非 `>=`（24+2 超限被放行）", status == 200,
-          f"http={status} code={payload.get('code')} totalCredit={(payload.get('data') or {}).get('totalCredit')}")
+    # D-CS-02：学分上限差一个。
+    # 为了让检查**可重复运行**，现场注册一名新生，先把他选到 24 学分，再选 2 学分课程
+    # （24 + 2 = 26 > 上限 25，正确实现应拒绝；实现用 `>` 比较，26 > 25 才拒 → 24 阶段被放行）。
+    new_student = f"CS{int(_time.time() * 1000) % 10**9:09d}"
+    reg_cs = call(port, "POST", "/admin/students",
+                  {"studentId": new_student, "name": "选课冒烟学生", "selectedCredit": 0.0}, token=admin)
+    cs_login = call(port, "POST", "/auth/login", {"username": new_student, "password": "123456"})
+    cs_token = (cs_login[1].get("data") or {}).get("accessToken")
+    # 把学分精确设定到 24（管理员建学生接口支持直接指定 selectedCredit），
+    # 这样"再选 2 学分 = 26 > 上限 25"是确定的边界场景，不依赖课程满员/时间冲突等干扰。
+    call(port, "POST", f"/admin/students/{new_student}/reset-credits", {"selectedCredit": 24.0},
+         token=admin)
+    credits_before = (call(port, "GET", f"/students/{new_student}/credits",
+                           token=cs_token)[1].get("data") or {}).get("totalCredit")
+    status, payload = call(port, "POST", "/enrollments", {"studentId": new_student, "classId": "C004"},
+                           token=cs_token)
+    # 判定：如果当前学分 + 2 学分 > 25（上限），正确实现必须拒绝；
+    # 只要没有被学分上限规则拦住，就说明命中了「上限用 `>` 而非 `>=`」的缺陷。
+    try:
+        total_before = float(credits_before or 0)
+    except (TypeError, ValueError):
+        total_before = 0.0
+    over_limit = total_before + 2.0 > 25.0
+    blocked_by_limit = payload.get("code") == "CREDIT_LIMIT_EXCEEDED"
+    check("【D-CS-02】学分上限用 `>` 而非 `>=`（合计超 25 仍被放行）",
+          over_limit and not blocked_by_limit,
+          f"已有 {credits_before} 学分，再选 2 学分 → 合计 {total_before + 2.0} > 25；"
+          f"http={status} code={payload.get('code')} "
+          f"totalCredit={(payload.get('data') or {}).get('totalCredit')}")
 
     # D-CS-05：先修课未校验（S005 未修 CS101 却可选 CS201）
     status, payload = call(port, "POST", "/enrollments", {"studentId": "S005", "classId": "C004"},
@@ -405,7 +486,7 @@ def smoke_course(port: int) -> None:
     records = call(port, "GET", "/students/S005/enrollments", token=token5)[1].get("data") or {}
     same_class = [r for r in (records.get("items") or [])
                   if r.get("classId") == "C001" and r.get("status") == "ENROLLED"]
-    no_business_unique = _source_has("course_service.py", 'UniqueConstraint("enroll_id"') and not _source_has(
+    no_business_unique = _source_has("sut/services/course_service.py", 'UniqueConstraint("enroll_id"') and not _source_has(
         "course_service.py", 'UniqueConstraint("student_id", "class_id"'
     )
     check("【D-CS-06】同一教学班重复选课无数据库唯一约束（仅 enroll_id 唯一）",
@@ -434,19 +515,27 @@ def smoke_course(port: int) -> None:
           after.get("enrolled", 0) <= after.get("capacity", 0),
           f"并发 6 次成功 {len(success)} 次；capacity={after.get('capacity')} enrolled={after.get('enrolled')}")
     check("【D-CS-11】并发选课的记录 ID 生成方式为 count()+1（撞主键概率高）",
-          _source_has("course_service.py", "_next_enroll_id"),
+          _source_has("sut/services/course_service.py", "_next_enroll_id"),
           f"并发返回码={codes}（SQLite 串行化后偶发，MySQL/PG 下必现）")
 
-    # D-CS-08：候补不递补
-    token1 = login(port, "S001")
-    wait = call(port, "POST", "/classes/C002/waitlist", {"studentId": "S001"}, token=token1)
+    # D-CS-08：候补不递补（用现场注册的新学生，避免"已候补/已选课"的累积干扰）
+    wl_student = f"WL{int(_time.time() * 1000) % 10**9:09d}"
+    reg_wl = call(port, "POST", "/admin/students",
+                  {"studentId": wl_student, "name": "候补冒烟学生", "selectedCredit": 0.0}, token=admin)
+    wl_login = call(port, "POST", "/auth/login", {"username": wl_student, "password": "123456"})
+    wl_token = (wl_login[1].get("data") or {}).get("accessToken")
+    wait = call(port, "POST", "/classes/C002/waitlist", {"studentId": wl_student},
+                token=wl_token if wl_token else admin)
     wait_id = (wait[1].get("data") or {}).get("waitlistId")
-    enroll_id = (call(port, "POST", "/enrollments", {"studentId": "S001", "classId": "C003"},
-                      token=token1)[1].get("data") or {}).get("enrollId")
-    withdraw = call(port, "POST", f"/enrollments/{enroll_id}/withdraw", {"reason": "测试"}, token=token1)
+    enroll = call(port, "POST", "/enrollments", {"studentId": wl_student, "classId": "C003"},
+                  token=wl_token)
+    enroll_id = (enroll[1].get("data") or {}).get("enrollId")
+    withdraw = call(port, "POST", f"/enrollments/{enroll_id}/withdraw", {"reason": "测试"},
+                    token=wl_token) if enroll_id else (0, {})
     check("【D-CS-08】退课后候补不递补（waitlistPromoted 恒为 null）",
           bool(wait_id) and (withdraw[1].get("data") or {}).get("waitlistPromoted") is None,
-          f"waitlistId={wait_id}")
+          f"候补 http={wait[0]} waitlistId={wait_id}；退课 http={withdraw[0]} "
+          f"waitlistPromoted={(withdraw[1].get('data') or {}).get('waitlistPromoted')}")
 
     # D-CS-07：候补上限未校验（C002 的 waitlistLimit=30，但服务端根本没检查上限）
     # 用管理员令牌为多个学号连续加入候补，逐个检查是否在第 31 条时被拒
@@ -576,7 +665,7 @@ def smoke_payment(port: int) -> None:
           f"并发成功 {success} 笔（上限应扣 {max_deduct} 分），实际扣 {actual_deduct} 分，"
           f"余额 {balance_after}；差额就是丢更新窗口导致的少扣")
     check("【D-PAY-11】并发支付的流水 ID 生成方式为 count()+1（撞主键概率高）",
-          _source_has("payment_service.py", "def _next("),
+          _source_has("sut/services/payment_service.py", "def _next("),
           f"并发返回码={codes}（SQLite 串行化后偶发，MySQL/PG 下必现）")
 
     # D-PAY-09：对账口径

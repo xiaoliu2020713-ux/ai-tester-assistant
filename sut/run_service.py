@@ -39,7 +39,8 @@ import _console  # noqa: E402  (scripts/_console.py)
 _console.setup()
 
 SERVICES: Dict[str, Dict[str, str]] = {
-    "library": {"module": "sut.services.library_service", "port": "8101", "name": "图书管理系统"},
+    # 图书管理系统已按交付要求归位到 book_management/ 包（保留全部功能 + 新增注册）
+    "library": {"module": "book_management.app.main", "port": "8101", "name": "图书管理系统"},
     "ecommerce": {"module": "sut.services.ecommerce_service", "port": "8102", "name": "电商平台"},
     "course": {"module": "sut.services.course_service", "port": "8103", "name": "学生选课系统"},
     "payment": {"module": "sut.services.payment_service", "port": "8104", "name": "支付清算系统"},

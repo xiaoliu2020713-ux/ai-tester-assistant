@@ -198,6 +198,59 @@ class CapacityRequest(BaseModel):
     capacity: int = Field(..., ge=1, le=500)
 
 
+class StudentCreateRequest(BaseModel):
+    """管理员建学生（自动化测试自建数据用）。"""
+
+    studentId: str = Field(..., min_length=3, max_length=32)
+    name: str = Field(..., min_length=1, max_length=64)
+    grade: int = Field(2026, ge=2000, le=2100)
+    major: str = Field("计算机", max_length=64)
+    selectedCredit: float = Field(0.0, ge=0)
+    password: str = Field("123456", min_length=6, max_length=64)
+
+
+class CreditResetRequest(BaseModel):
+    """管理员直接设定学生已选学分（自动化测试构造边界场景用）。"""
+
+    selectedCredit: float = Field(..., ge=0, le=200)
+
+
+@app.post("/admin/students/{student_id}/reset-credits", tags=["admin"],
+          summary="设定学生已选学分（管理员）")
+def reset_credits(student_id: str, body: CreditResetRequest,
+                  user: Dict[str, Any] = Depends(current_user), db: Session = Depends(get_db)):
+    """把学生的已选学分设为指定值，用于构造「学分上限」边界场景。
+
+    注：真实教务系统不会有这种接口；这里是为了让自动化测试能确定性地构造边界条件
+    （否则只能靠"选满若干门课"，会被课程容量与时间冲突干扰）。
+    """
+    require_role(user, "admin")
+    student = db.get(Student, student_id)
+    if student is None:
+        raise http_error(404, "STUDENT_NOT_FOUND", f"学生不存在：{student_id}")
+    student.selected_credit = body.selectedCredit
+    db.commit()
+    return ok({"studentId": student_id, "selectedCredit": float(student.selected_credit)},
+              message="已更新学分")
+
+
+@app.post("/admin/students", tags=["admin"], summary="新建学生（管理员）")
+def create_student(body: StudentCreateRequest, user: Dict[str, Any] = Depends(current_user),
+                   db: Session = Depends(get_db)):
+    from sut.db import fail
+
+    require_role(user, "admin")
+    if db.get(Student, body.studentId) is not None:
+        return fail("STUDENT_ALREADY_EXISTS", f"学号已存在：{body.studentId}", http_status=409)
+    student = Student(student_id=body.studentId, name=body.name, grade=body.grade,
+                      major=body.major, status="ACTIVE",
+                      password_hash=hash_password(body.password), role="student",
+                      selected_credit=body.selectedCredit, gpa=0.0)
+    db.add(student)
+    db.commit()
+    return ok(student.to_dict(), message="学生已创建")
+
+
 def _next_enroll_id(db: Session) -> str:
     return f"E{len(db.scalars(select(Enrollment)).all()) + 1:04d}"
 

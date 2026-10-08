@@ -1,4 +1,4 @@
-# AI 测试员助手平台
+﻿# AI 测试员助手平台
 
 [![Repo](https://img.shields.io/badge/GitHub-ai--tester--assistant-181717?logo=github)](https://github.com/xiaoliu2020713-ux/ai-tester-assistant)
 [![Python](https://img.shields.io/badge/Python-3.10~3.12-blue)](https://www.python.org/)
@@ -12,17 +12,21 @@
 > ```
 
 **一句话**：一个能对话的「AI 测试员」——粘贴 API 文档，结合多业务域知识库产出结构化测试用例，
-并把用例变成**真正能跑的 pytest 脚本**，在自带的 4 个 FastAPI 被测系统上执行、发现缺陷。
+并把用例变成**真正能跑的 pytest 脚本**，在自带的被测系统上执行、发现缺陷。
 
-| 阶段 | 内容 | 状态 |
+| 模块 | 技术栈 | 说明 |
 | --- | --- | --- |
-| **阶段一** | Streamlit 对话界面 + 多域 RAG 知识库（LangChain + ChromaDB，语义向量）+ 可配置大模型（本地 llama.cpp / DeepSeek） | ✅ 已完成 |
-| **阶段二** | 用例 JSON → pytest 脚本生成器 + 执行器 + **4 个 FastAPI 被测系统**（SQLAlchemy + SQLite + JWT + passlib，44 条故意植入缺陷） | ✅ 已完成 |
+| **对话前端** `app.py` | Streamlit | 聊天区 + 模型配置区 + 知识域选择 + 文档粘贴/上传 + 用例展示 + 执行结果与报告摘要 |
+| **多域 RAG 知识库** `rag/` `knowledge/` | LangChain + ChromaDB | 图书 / 电商 / 选课三域，各含业务规则、常见测试场景、用例模板；支持把粘贴的 API 文档索引进当前域 |
+| **被测系统** `book_management/` | FastAPI + SQLAlchemy + SQLite + JWT + passlib | 用户注册/登录、图书 CRUD、借书（库存校验）、还书；Swagger 见 `/docs`；数据库 `books.db` |
+| **接口自动化测试** `book_api_test/` | Pytest + Requests + Allure | 登录态自动携带 Token；`utils/db_check.py` 直连 SQLite 断言库存与借阅记录；可出 Allure 报告 |
+| **其他演示域服务** `sut/` | FastAPI + SQLAlchemy + SQLite + JWT + passlib | 电商 / 选课 / 支付三套被测系统，供 RAG 多域演示与缺陷发现验证 |
+| **用例生成与执行** `executor/` | 自研 | 用例 JSON → pytest 脚本 → 执行 → 结果回填聊天框 |
 
 > **本机已验证环境**：Windows + Python **3.12.10**，`streamlit 1.49.1` / `langchain-core 0.3.86` /
 > `chromadb 0.5.4` / `fastapi 0.141.1` / `sqlalchemy 2.1.4`；
 > 本地模型为 **llama.cpp + Qwen3.5-4B-Q6_K.gguf**（监听 `127.0.0.1:8080`，实测 44 tokens/s）。
-> 离线自检、界面无头测试、模型链路测试、**真实模型端到端**、阶段二端到端、四服务冒烟均已通过。
+> 离线自检、界面无头测试、模型链路测试、真实模型端到端、接口自动化测试（42 用例绿灯 + 6 个缺陷被发现）均已通过。
 
 > **本地模型在 `D:\tools` 备好**（llama.cpp CUDA 版 + `Qwen3.5-4B-Q6_K.gguf`），
 > 一条命令即可拉起：`python scripts/start_local_model.py`（详见「四、本地模型配置」）。
@@ -42,9 +46,7 @@
                     ▼
    结构化测试用例（Markdown 表格）→ 直接返回聊天框
                     │
-                    ├─► 阶段二 JSON（自动化执行输入）
-                    │        ▼
-                    │   pytest 脚本 → 在 4 个 FastAPI 被测系统上执行 → 发现 44 条已知缺陷
+                    ├─► 用例 JSON → pytest 脚本 → 在 book_management 上执行 → 缺陷发现
                     │
                     ├─► CSV（Excel 查看）
                     └─► Gherkin（BDD）
@@ -56,39 +58,41 @@
 
 ### 0. 三分钟体验路径（不需要模型，不需要外网）
 
-克隆后依次执行，**全程不依赖任何大模型**，用于快速验证阶段二能力：
+克隆后依次执行，**全程不依赖任何大模型**，用于快速验证接口测试与缺陷发现能力：
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 
-# ① 拉起 4 个 FastAPI 被测系统（SQLite 自动建表 + 灌种子数据）
-python sut/run_service.py all --background
-python sut/run_service.py --status           # 应显示 4 个 🟢 运行中
+# ① 启动被测系统（图书管理系统，FastAPI + SQLite + JWT）
+python book_management/run.py                 # http://127.0.0.1:8101
+#    Swagger 文档：http://127.0.0.1:8101/docs
 
-# ② 冒烟自检：基础设施（JWT/401/403/404/422）+ 正确行为对照 + 44 条已知缺陷
-#    ⚠️ 冒烟断言依赖种子数据，反复运行前请先重置：
-#    python sut/reset_and_restart.py
-python sut/smoke_all.py                      # 期望：✅ 全部通过
+# ② 跑接口自动化测试（Pytest + Requests + Allure）
+pip install -r book_api_test/requirements.txt
+python book_api_test/run_tests.py             # 42 用例全绿 + 生成 Allure 报告
+python book_api_test/run_tests.py -m smoke     # 只跑冒烟
 
-# ③ 用内置演示用例生成 pytest 脚本并执行（会真的发现被测服务缺陷）
-python scripts/generate_tests.py --demo
-python scripts/run_tests.py --with-mock      # 或 --env live 打线上
-
-# ④ 想看缺陷发现效果（运行默认跳过的负向契约用例）
-python scripts/run_tests.py --with-mock --run-defects
+# ③ 看缺陷发现能力（断言"正确行为"，因此在有缺陷时失败 = 缺陷被抓到）
+cd book_api_test
+pytest tests_defects                          # 预期 6 个失败，对应 6 条已知缺陷
 ```
 
-想在界面上体验（含 AI 生成用例）再启动：
+想验证多域能力（电商 / 选课 / 支付三套被测系统 + 冒烟自检）：
 
 ```powershell
-python scripts/start_local_model.py          # 本地千问3.5 4B（需 D:\tools 的模型）
-streamlit run app.py                         # http://localhost:8501
+python sut/run_service.py all --background    # 启动 4 套被测系统
+python sut/reset_and_restart.py               # 一键重置为初始状态（推荐先跑）
+python sut/smoke_all.py                       # 冒烟：基础设施 + 正确行为 + 已知缺陷
 ```
 
-界面「⚙️ 阶段二」页签里把「目标环境」切到 **自定义地址**，填 `http://127.0.0.1:8101`（或 8102/8103/8104），
-即可让 AI 测试员针对这些被测系统生成并执行用例。
+想在界面上体验（含 AI 生成用例）：
+
+```powershell
+python scripts/start_local_model.py           # 本地千问3.5 4B（需 D:\tools 的模型）
+streamlit run app.py                          # http://localhost:8501
+```
 
 ### 1. 环境要求
 
@@ -189,7 +193,7 @@ ai-tester-assistant/
 ├── config.py                     # 配置管理：路径、业务域注册表、LLMConfig、默认参数
 ├── tester.py                     # 「AI 测试员」核心：提示词组装、多轮对话、用例解析与导出
 ├── requirements.txt              # 依赖清单（含版本冲突说明）
-├── requirements.lock             # 精确锁定版本（python scripts/resolve_deps.py 生成）
+├── .gitattributes                # 换行与文本处理规范
 ├── .env.example                  # 环境变量示例
 ├── README.md                     # 本文件（含使用说明与扩展指南）
 │
@@ -197,16 +201,51 @@ ai-tester-assistant/
 │   ├── __init__.py
 │   └── client.py                 #   OpenAI 兼容客户端（默认 127.0.0.1:8080，支持切换 DeepSeek）+ 连接自检
 │
-├── executor/                     # 【阶段二】用例 → pytest 脚本 → 真实执行
+├── book_management/              # ★ 被测系统：图书管理系统（FastAPI + SQLAlchemy + SQLite + JWT + passlib）
+│   ├── app/main.py               #   FastAPI 应用入口：挂载路由、启动建表 + 灌种子数据
+│   ├── routers/user.py           #   用户：注册 / 登录 / 个人信息
+│   ├── routers/book.py           #   图书：CRUD / 借书（库存校验）/ 还书 / 续借 / 预约 / 罚金
+│   ├── database.py               #   引擎、会话、SQLite 参数（WAL/外键/busy_timeout）、统一响应体、应用工厂
+│   ├── models.py                 #   ORM 模型：readers / books / loans / reservations / fines
+│   ├── schemas.py                #   Pydantic 请求响应模型
+│   ├── auth.py                   #   passlib 口令哈希 + JWT 签发校验 + 鉴权依赖
+│   ├── run.py                    #   启动脚本（默认 127.0.0.1:8101；`--reset-db` 重置数据库）
+│   └── books.db                  #   SQLite 数据库文件（首次启动自动生成，已 gitignore）
+│
+├── book_api_test/                # ★ 接口自动化测试（Pytest + Requests + Allure）
+│   ├── conftest.py               #   夹具：命令行参数、客户端、DB 检查器、Allure 环境信息
+│   ├── config.py                 #   base_url / db_path / timeout 配置中心
+│   ├── pytest.ini                #   标记（smoke/regression/defect）、日志、默认参数
+│   ├── run_tests.py              #   一键执行 + 生成 Allure 报告
+│   ├── requirements.txt          #   测试项目依赖
+│   ├── utils/api_client.py       #   自动携带 JWT 的 HTTP 客户端 + Allure 请求/响应附件
+│   ├── utils/db_check.py         #   ★ 直连 SQLite 断言库存 / 借阅记录 / 罚金 / 不变量
+│   ├── utils/assertions.py       #   断言助手（失败信息含完整响应体）
+│   ├── utils/data_factory.py     #   唯一 ISBN / 学号工厂（保证用例可重复运行）
+│   ├── tests/                    #   普通回归（42 用例，应全绿）
+│   └── tests_defects/            #   缺陷暴露用例（断言正确行为，预期失败 = 缺陷被抓到）
+│
+├── sut/                          # 其他演示域被测系统 + 冒烟自检
+│   ├── KNOWN_DEFECTS.md          #   ★ 缺陷清单（图书 11 条 + 电商 11 条 + 选课 11 条 + 支付 11 条）
+│   ├── db.py / auth.py           #   其他服务共用的 SQLite/JWT 基础层
+│   ├── services/ecommerce_service.py   # 电商平台（8102）
+│   ├── services/course_service.py      # 学生选课系统（8103）
+│   ├── services/payment_service.py     # 支付清算系统（8104）
+│   ├── services/library_service.py     # 兼容层：转发到 book_management/*
+│   ├── run_service.py            #   统一启动器（--status / --reset-db / all --background）
+│   ├── reset_and_restart.py      #   一键重置为初始状态
+│   └── smoke_all.py              #   冒烟自检（基础设施 + 正确行为对照 + 已知缺陷）
+│
+├── executor/                     # 用例 → pytest 脚本 → 真实执行
 │   ├── __init__.py
-│   ├── schema.py                 #   用例数据模型（阶段二 JSON 契约）+ 容错解析 + 自然语言断言→机器断言
+│   ├── schema.py                 #   用例数据模型（JSON 契约）+ 容错解析 + 自然语言断言→机器断言
 │   ├── renderer.py               #   渲染 pytest 源码（conftest / 测试模块 / support_cases.json / pytest.ini）
 │   ├── support.py                #   运行期支撑库（HTTP 客户端、断言工具、JSON 路径、变量替换，零第三方硬依赖）
 │   ├── config.py                 #   被测系统配置（环境/地址/鉴权/Mock 启动脚本），落盘 storage/execution/sut.yaml
 │   └── runner.py                 #   落盘 + 自动起停 Mock（随机端口）+ 执行 + 结果解析
 │
 ├── examples/
-│   └── phase2_demo_cases.json    # 阶段二演示用例（含一条能发现真实缺陷的负向契约用例）
+│   └── phase2_demo_cases.json    # 演示用例（含一条能发现真实缺陷的负向契约用例）
 │
 ├── rag/                          # 知识库构建与检索
 │   ├── __init__.py
@@ -225,7 +264,7 @@ ai-tester-assistant/
 │   ├── manifest.json             #   业务域清单：新增业务域在此登记
 │   ├── common/                   #   通用测试基线（任何业务域都会一起检索）
 │   │   ├── 01_test_design_methods.md      # 测试设计方法（等价类/边界值/判定表/场景法）
-│   │   ├── 02_case_writing_standard.md    # 用例字段规范 + 阶段二 JSON 格式契约
+│   │   ├── 02_case_writing_standard.md    # 用例字段规范 + 执行用 JSON 格式契约
 │   │   └── 03_api_baseline_checklist.md   # 接口测试基线检查清单
 │   ├── library/                  #   图书管理系统
 │   │   ├── 01_business_rules.md  #     业务规则 BR-01 ~ BR-29 + 状态机 + 默认参数表
@@ -246,23 +285,23 @@ ai-tester-assistant/
 ├── scripts/
 │   ├── build_kb.py               # 命令行构建/重建知识库（支持 --reset / --stat / --provider）
 │   ├── check_llm.py              # 命令行检测模型连通性（不启动界面）
-│   ├── resolve_deps.py           # 依赖解析器：生成 requirements.lock（约束传播 + 回溯）
+│   ├── resolve_deps.py           # 依赖解析器（约束传播 + 回溯）
 │   ├── smoke_test.py             # 离线自检（RAG + 提示词 + 用例解析 + 导出）
 │   ├── test_llm.py               # 模型链路端到端测试（进程内假 OpenAI 服务）
 │   ├── test_app.py               # Streamlit 界面无头测试（官方 AppTest）
 │   ├── start_local_model.py      # 一键启动本地 llama.cpp 模型服务（D:\tools 的权重）
 │   ├── setup_local_model.py      # 探测本机推理服务并写入 .env
 │   ├── test_local_model.py       # 真实本地模型端到端测试（生成 → 解析 → 渲染）
-│   ├── generate_tests.py         # 【阶段二】用例 → pytest 脚本
-│   ├── run_tests.py              # 【阶段二】执行测试套件（可自动起停 Mock）
-│   ├── test_executor.py          # 【阶段二】端到端自检（解析 → 渲染 → 执行 → 缺陷识别）
+│   ├── generate_tests.py         # 用例 → pytest 脚本
+│   ├── run_tests.py              # 执行测试套件（可自动起停 Mock）
+│   ├── test_executor.py          # 端到端自检（解析 → 渲染 → 执行 → 缺陷识别）
 │   └── _console.py               # 控制台 UTF-8 / 兼容 GBK 的输出工具
 │
 └── storage/                      # 运行期数据（自动生成，可安全删除后重建）
     ├── chroma/                   #   ChromaDB 持久化向量
     ├── index/                    #   切分片段侧车文件（关键词检索 / 离线重建）
     ├── uploads/                  #   用户上传的原始文件
-    ├── execution/                #   阶段二：sut.yaml（被测系统配置）+ generated/（生成的 pytest 脚本）
+    ├── execution/                #   sut.yaml（被测系统配置）+ generated/（生成的 pytest 脚本）
     └── logs/app.log              #   运行日志
 ```
 
@@ -277,7 +316,7 @@ ai-tester-assistant/
 | 图书管理系统 `library` | 4 个 | **41** | `BR-01` ~ `BR-29`（出现 82 次） | 业务规则+状态机+默认参数表 / 测试场景 / 用例模板 / 接口文档示例 |
 | 电商平台 `ecommerce` | 4 个 | **42** | `EC-01` ~ `EC-37`（出现 118 次） | 同上四类文档 |
 | 学生选课系统 `course` | 4 个 | **41** | `CS-01` ~ `CS-29`（出现 117 次） | 同上四类文档 |
-| 通用测试基线 `common` | 3 个 | **22** | — | 测试设计方法 / 用例编写规范与阶段二 JSON 契约 / 接口测试基线清单 |
+| 通用测试基线 `common` | 3 个 | **22** | — | 测试设计方法 / 用例编写规范与执行用 JSON 契约 / 接口测试基线清单 |
 | **合计** | **15 个文件** | **146 个片段** | 317 处规则引用 | 约 49986 字符 |
 
 每个业务域都齐备你要求的「**业务规则 + 常见测试场景 + 用例模板**」，外加一份可粘贴的接口文档示例。
@@ -441,7 +480,7 @@ python scripts/test_local_model.py       # 真实模型端到端（生成用例 
 1. 在右侧「📥 API 文档」文本框粘贴接口文档片段；
 2. 点 **➡️ 直接让 AI 分析**；
 3. AI 输出八段式结果：`接口分析 → 正常流程 → 异常流程 → 边界值 → 权限与安全 → 并发与幂等 → 测试数据准备(JSON) → 风险与建议`；
-4. 回答下方自动出现三个标签页：**📋 用例表格**（可排序筛选）、**🧩 阶段二 JSON**（可下载）、**⬇️ 导出**（CSV / Gherkin）。
+4. 回答下方自动出现三个标签页：**📋 用例表格**（可排序筛选）、**🧩 执行用例 JSON**（可下载）、**⬇️ 导出**（CSV / Gherkin）。
 
 若还想让后续提问都能检索到这份文档，再加点 **📌 索引到当前知识域**。
 
@@ -491,16 +530,16 @@ python scripts/start_local_model.py --check-only
 python scripts/setup_local_model.py            # 探测端口并写入 .env
 python scripts/test_local_model.py             # 真实模型端到端（生成用例 → 解析 → 渲染）
 
-# 离线自检（阶段一）
+# 离线自检（RAG 全链路）
 python scripts/smoke_test.py
 python scripts/test_llm.py
 python scripts/test_app.py
 
-# ---------- 阶段二：用例 → pytest 脚本 → 真实执行 ----------
+# ---------- 用例 → pytest 脚本 → 真实执行 ----------
 # 用内置演示用例生成（免模型）
 python scripts/generate_tests.py --demo
 
-# 用阶段一界面导出的用例生成
+# 用界面导出的用例生成
 python scripts/generate_tests.py --input storage/execution/phase2_test_cases.json
 
 # 执行：自动起停被测项目自带的 Mock 服务（端口随机，不会撞端口）
@@ -514,21 +553,21 @@ python scripts/run_tests.py --with-mock --json reports/result.json
 # 演示缺陷发现能力（运行默认跳过的负向契约用例）
 python scripts/run_tests.py --with-mock --run-defects
 
-# 阶段二端到端自检
+# 端到端自检
 python scripts/test_executor.py
 ```
 
 ---
 
-## 七、阶段二：从用例到真实执行
+## 七、自动化执行层：从用例到真实执行
 
-阶段一产出的是**用例**，阶段二把它变成**能跑的测试**并真实执行。
+对话阶段产出的是**用例**，自动化执行层把它变成**能跑的测试**并真实执行。
 
 ```
-阶段一：AI 测试员输出用例表格
-        │  右侧「🧩 阶段二 JSON」页签 → 下载 phase2_test_cases.json
+第 1 步：AI 测试员输出用例表格
+        │  右侧「🧩 执行用例 JSON」页签 → 下载 phase2_test_cases.json
         ▼
-阶段二：executor/ 解析用例 → 渲染 pytest 脚本 → storage/execution/generated/
+第 2 步：executor/ 解析用例 → 渲染 pytest 脚本 → storage/execution/generated/
         │
         ├─► conftest.py            被测地址、登录、断言夹具（不硬编码任何环境）
         ├─► support_cases.json     用例数据 + 连接配置（数据与代码分离）
@@ -542,10 +581,10 @@ python scripts/test_executor.py
 
 ### 5.1 界面操作（推荐）
 
-1. 打开应用 → 切到 **「⚙️ 阶段二 · 生成并执行测试」** 页签；
+1. 打开应用 → 切到 **「⚙️ 生成并执行测试」** 页签；
 2. 「选择用例来源」三选一：
-   - **最近一次 AI 回答中的用例**（阶段一聊完直接生成，最顺手的路径）；
-   - **上传阶段二 JSON 文件**；
+   - **最近一次 AI 回答中的用例**（聊完直接生成，最顺手的路径）；
+   - **上传用例 JSON 文件**；
    - **内置演示用例**（免模型，点「📥 一键载入演示用例」即可体验全流程）；
 3. 点 **🔧 生成 pytest 脚本** → 界面列出产出文件，并可展开预览源码；
 4. 右侧选「目标环境」→ **▶️ 运行测试**；
@@ -670,7 +709,7 @@ DOMAIN_ORDER: List[str] = ["library", "ecommerce", "course", "payment"]
 | --- | --- | --- |
 | `01_business_rules.md` | 实体、业务规则（**给每条规则编号**，如 `PAY-01`）、状态机、默认参数表 | 提供约束与阈值，AI 会引用编号 |
 | `02_test_scenarios.md` | 按接口组织的测试场景表（场景 / 类型 / 关注点 / 关联规则） | 提供测试思路，提升覆盖率 |
-| `03_case_templates.md` | 2~3 个标准用例表格模板 + 机器可读 JSON 片段 | 统一输出风格与阶段二格式 |
+| `03_case_templates.md` | 2~3 个标准用例表格模板 + 机器可读 JSON 片段 | 统一输出风格与用例 JSON 格式 |
 | `04_api_examples.md` | 真实接口文档示例 | 便于演示与实测粘贴 |
 
 ### 第 3 步：构建索引
@@ -692,7 +731,7 @@ python scripts/build_kb.py --reset
 
 ---
 
-## 十、交付边界：阶段一 / 阶段二
+## 十、能力边界与已实现范围
 
 **本阶段已实现**
 
@@ -701,20 +740,20 @@ python scripts/build_kb.py --reset
 - ✅ 知识域切换：图书管理系统 / 电商平台 / 学生选课系统（+ 通用测试基线）
 - ✅ 粘贴或上传 `.txt / .md / .json`，手动或自动索引到当前知识域
 - ✅ LangChain + ChromaDB 多域 RAG，检索优先当前域
-- ✅ 结构化测试用例输出（Markdown 表格）+ 阶段二 JSON / CSV / Gherkin 导出
+- ✅ 结构化测试用例输出（Markdown 表格）+ 执行用例 JSON / CSV / Gherkin 导出
 - ✅ 连接自检、离线自检、命令行构建/检测工具
 
-**阶段一已实现**
+**对话与知识库能力**
 
 - ✅ Streamlit 对话界面，明确展示当前 AI 角色为「AI 测试员」
 - ✅ 模型配置区：默认本地模型（`http://127.0.0.1:8080`，兼容 OpenAI 接口），可实时切换 DeepSeek / 其他 OpenAI 兼容接口
 - ✅ 知识域切换：图书管理系统 / 电商平台 / 学生选课系统（+ 通用测试基线）
 - ✅ 粘贴或上传 `.txt / .md / .json`，手动或自动索引到当前知识域
 - ✅ LangChain + ChromaDB 多域 RAG，检索优先当前域
-- ✅ 结构化测试用例输出（Markdown 表格）+ 阶段二 JSON / CSV / Gherkin 导出
+- ✅ 结构化测试用例输出（Markdown 表格）+ 执行用例 JSON / CSV / Gherkin 导出
 - ✅ 连接自检、离线自检、命令行构建/检测工具
 
-**阶段二已实现（本次新增）**
+**自动化执行能力**
 
 - ✅ 用例 → pytest 脚本生成器（真实断言，不伪造；无法机器判定的断言进 `xfail` 待人工确认）
 - ✅ 接入被测系统 `ecommerce_api_test`（**零侵入**：不改动该项目任何文件）
@@ -722,7 +761,7 @@ python scripts/build_kb.py --reset
 - ✅ 一键执行 + 结果回收：通过/失败/待人工确认数量、失败用例定位、pytest 原始输出
 - ✅ 环境可切换（本地 Mock / 线上真实服务 / 自定义地址），执行时覆盖连接配置，无需重新生成脚本
 - ✅ 缺陷发现实测：分页边界用例暴露了被测服务忽略 `limit` 参数的真实缺陷
-- ✅ 阶段二端到端自检脚本 `scripts/test_executor.py`（解析 → 渲染 → 执行 → 缺陷识别 → 反向验证）
+- ✅ 端到端自检脚本 `scripts/test_executor.py`（解析 → 渲染 → 执行 → 缺陷识别 → 反向验证）
 
 **尚未包含（后续可做）**
 
@@ -731,7 +770,7 @@ python scripts/build_kb.py --reset
 - ❌ 数据驱动参数化批量执行与并行调度
 - ❌ 多环境配置档案管理与测试数据工厂（造数/清理）
 
-**阶段一 ↔ 阶段二的接口契约**：聊天框内生成的 `🧩 阶段二 JSON`（`case_id / method / path / priority / type /
+**用例 JSON 接口契约**：聊天框内生成的 `🧩 执行用例 JSON`（`case_id / method / path / priority / type /
 headers / path_params / query / body / expect`）即为生成器的输入，
 契约定义见 `knowledge/common/02_case_writing_standard.md`。
 
@@ -760,9 +799,9 @@ headers / path_params / query / body / expect`）即为生成器的输入，
 | 回答被截断 | 4B 小模型上下文有限。调大「高级参数 → 最大输出 Token」，或减小 `RETRIEVAL_MAX_CHARS` |
 | 想彻底重置 | 关闭应用后删除 `storage/` 目录（含向量与日志），重新启动即可 |
 | 用例表格没有出现标签页 | 模型未输出符合规范的表格（列名须含「用例ID」）。可回复「请用规定的表格格式重新输出」 |
-| 阶段二点「运行测试」提示 Mock 未就绪 | 被测项目路径不对。默认取 `../ecommerce_api_test`，可用环境变量 `SUT_PROJECT_DIR` 指定；也可在 `storage/execution/sut.yaml` 改 `mock_server_script` |
-| 阶段二执行全部报连接错误 | `support_cases.json` 的 `settings.base_url` 指向了不可达地址。界面切「目标环境」后重新运行即可（执行时会自动覆盖该配置） |
-| 阶段二结果里出现「待人工确认」 | 这些是 AI 给出的、无法机器判定的断言（如「提示友好」）。已在生成脚本里以 `xfail` 标记并列出待确认项，需人工补断言 |
+| 点「运行测试」提示 Mock 未就绪 | 被测项目路径不对。默认取 `../ecommerce_api_test`，可用环境变量 `SUT_PROJECT_DIR` 指定；也可在 `storage/execution/sut.yaml` 改 `mock_server_script` |
+| 执行全部报连接错误 | `support_cases.json` 的 `settings.base_url` 指向了不可达地址。界面切「目标环境」后重新运行即可（执行时会自动覆盖该配置） |
+| 结果里出现「待人工确认」 | 这些是 AI 给出的、无法机器判定的断言（如「提示友好」）。已在生成脚本里以 `xfail` 标记并列出待确认项，需人工补断言 |
 | 想跳过负向契约用例 | 默认已跳过（`skipif` + `defect` marker）。要主动看缺陷发现效果：`python scripts/run_tests.py --with-mock --run-defects` |
 
 ---
@@ -773,13 +812,13 @@ headers / path_params / query / body / expect`）即为生成器的输入，
 | --- | --- | --- |
 | 语法检查 | `python -m compileall app.py config.py tester.py llm rag prompts scripts` | ✅ 通过 |
 | 依赖安装 | `pip install -r requirements.txt`（Windows + Python 3.12.10） | ✅ 153 个包安装成功，无解析冲突 |
-| 离线全链路自检 | `python scripts/smoke_test.py` | ✅ 24 项全部通过：三域索引（图书 41 / 电商 42 / 选课 41 片段 + 通用基线 22 片段）、中文检索命中 `BR-` 规则、提示词组装、用例解析（含 `\|` 转义）、阶段二 JSON/CSV/Gherkin 导出、粘贴文档入域与清除 |
+| 离线全链路自检 | `python scripts/smoke_test.py` | ✅ 24 项全部通过：三域索引（图书 41 / 电商 42 / 选课 41 片段 + 通用基线 22 片段）、中文检索命中 `BR-` 规则、提示词组装、用例解析（含 `\|` 转义）、执行用例 JSON/CSV/Gherkin 导出、粘贴文档入域与清除 |
 | 模型链路端到端 | `python scripts/test_llm.py` | ✅ 9 项全部通过：模型列表发现、连接自检、非流式/流式调用、AITester 生成→解析→导出、不可达地址抛出可读 `LLMError` |
-| 界面无头测试 | `python scripts/test_app.py` | ✅ 16 项全部通过：脚本执行无异常、AI 测试员角色展示、模型配置区/知识域单选/聊天输入/文档粘贴/上传组件齐全、切换知识域与切换 DeepSeek 无异常、粘贴文档触发分析不崩溃、阶段二页签切换/载入演示用例/生成脚本/运行按钮齐备 |
+| 界面无头测试 | `python scripts/test_app.py` | ✅ 16 项全部通过：脚本执行无异常、AI 测试员角色展示、模型配置区/知识域单选/聊天输入/文档粘贴/上传组件齐全、切换知识域与切换 DeepSeek 无异常、粘贴文档触发分析不崩溃、执行页签切换/载入演示用例/生成脚本/运行按钮齐备 |
 | 真实启动 | `streamlit run app.py --server.port 8509` | ✅ `/_stcore/health` 返回 200，页面正常提供 |
-| **阶段二**端到端 | `python scripts/test_executor.py` | ✅ 33 项全部通过：用例解析（含自然语言→机器断言、模糊断言转人工确认、**预期结果抽取**）、渲染产物（语法正确、无假断言、无模板转义残留）、自动起 Mock（随机端口非 8765）、默认执行 9 通过 1 跳过、显式运行负向用例**成功识别缺陷**（断言消息含「实际为 20」）、移除负向断言后 10 条全绿 |
-| **阶段二**打线上 | `python scripts/run_tests.py --env live` | ✅ 通过 10 / 失败 0（19.6s，直连 `https://fakestoreapi.com`） |
-| **阶段二**缺陷发现 | `python scripts/run_tests.py --with-mock --run-defects` | ✅ 主动暴露缺陷：`断言 [TC-EC-015] 期望 根节点 长度 == 5，实际为 20（该接口可能忽略了分页/过滤参数）` |
+| 自动化执行端到端 | `python scripts/test_executor.py` | ✅ 33 项全部通过：用例解析（含自然语言→机器断言、模糊断言转人工确认、**预期结果抽取**）、渲染产物（语法正确、无假断言、无模板转义残留）、自动起 Mock（随机端口非 8765）、默认执行 9 通过 1 跳过、显式运行负向用例**成功识别缺陷**（断言消息含「实际为 20」）、移除负向断言后 10 条全绿 |
+| 自动化执行打线上 | `python scripts/run_tests.py --env live` | ✅ 通过 10 / 失败 0（19.6s，直连 `https://fakestoreapi.com`） |
+| 缺陷发现（负向用例） | `python scripts/run_tests.py --with-mock --run-defects` | ✅ 主动暴露缺陷：`断言 [TC-EC-015] 期望 根节点 长度 == 5，实际为 20（该接口可能忽略了分页/过滤参数）` |
 | **真实本地模型** | `python scripts/test_local_model.py --max-tokens 8192` | ✅ 13 项全部通过：连通性（432 ms 探针）、模型名 `qwen3.5:4b`、RAG 检索、**73 秒生成 7087 字符**、解析出 **18 条结构化用例**（P0×3 / P1×4 / P2×11，覆盖正常 3 / 异常 5 / 边界 9 / 幂等 1）、**17/18 条预期结果被抽取为可执行断言**、流式输出 45 分片 |
 | 真实用例 → 可执行脚本 | `python scripts/generate_tests.py --input storage/execution/phase2_test_cases.json` | ✅ 模型生成的 16 条用例全部渲染为 pytest（`test_api_orders.py`），无假断言、无模板转义残留 |
 | 本地探测准确性 | `python scripts/setup_local_model.py` | ✅ 只识别出真实可用的 8080；排除代理劫持产生的幻觉端口与「Ollama 在跑但无模型」的假可用 |

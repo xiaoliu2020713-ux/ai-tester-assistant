@@ -1,6 +1,19 @@
 # 运行期数据（向量库 / 索引侧车 / 上传文件 / 日志）
 storage/
 
+# 被测系统的 SQLite 数据库（首次启动自动创建，含 WAL/SHM 日志文件）
+book_management/books.db
+book_management/books.db-wal
+book_management/books.db-shm
+*.db-wal
+*.db-shm
+
+# 自动化测试产物
+book_api_test/reports/
+allure-results/
+allure-report/
+*.html
+
 # 虚拟环境
 .venv/
 venv/
@@ -30,10 +43,6 @@ Thumbs.db
 # 导出物
 *.csv
 *.feature
-*_phase2_test_cases.json
-
-# pytest 运行缓存
-.pytest_cache/
 
 # 本地模型服务日志
 llama-server.log

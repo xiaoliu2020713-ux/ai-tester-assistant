@@ -1,0 +1,26 @@
+# 图书管理系统接口自动化测试 —— 依赖清单
+# 安装：pip install -r book_api_test/requirements.txt
+#
+# 说明：被测系统本身依赖 FastAPI/SQLAlchemy 等，见项目根 requirements.txt。
+#      本文件只列**测试项目**自己的依赖。
+
+pytest>=8.0              # 测试框架
+requests>=2.32.0         # HTTP 客户端
+allure-pytest>=2.13.0    # Allure 报告（pytest 插件）
+allure-python-commons>=2.13.0
+pyyaml>=6.0              # 读取可选的 YAML 用例数据
+
+# 可选增强（不装也能跑）：
+# pytest-timeout>=2.3    # 单用例超时保护
+# pytest-xdist>=3.5      # 并行执行（-n auto）
+# pytest-html>=4.1       # 不装 Allure CLI 时的 HTML 兜底报告
+
+# ---------------------------------------------------------------------------
+# Allure 报告还需要命令行工具（生成 HTML 需要它）：
+#   Windows (Scoop)  : scoop install allure
+#   Windows (Choco)  : choco install allure-commandline
+#   macOS            : brew install allure
+#   手动下载         : https://github.com/allure-framework/allure2/releases
+# 验证：allure --version
+# 未安装时，测试仍可正常运行，只是无法生成 HTML 报告（会提示安装方式）。
+# ---------------------------------------------------------------------------

@@ -188,6 +188,7 @@ def seed() -> None:
             Sku(sku_id="S003", title="降噪耳机", price=899.00, stock=0, locked=0, status="ON"),
             Sku(sku_id="S004", title="已下架商品", price=100.00, stock=5, locked=0, status="OFF"),
             Sku(sku_id="S005", title="限量鼠标", price=199.00, stock=1, locked=0, status="ON"),
+            Sku(sku_id="S006", title="特价书签", price=5.00, stock=50, locked=0, status="ON"),
         ])
         db.add_all([
             Coupon(coupon_id="UC001", user_id="U001", threshold=100.0, amount=10.0,
@@ -218,6 +219,21 @@ def _startup() -> None:
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class RegisterRequest(BaseModel):
+    userId: str = Field(..., min_length=3, max_length=32)
+    name: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=6, max_length=64)
+    address: Optional[str] = Field(None, max_length=255)
+
+
+class CouponCreateRequest(BaseModel):
+    userId: str
+    couponId: str = Field(..., min_length=3, max_length=32)
+    threshold: float = Field(0.0, ge=0)
+    amount: float = Field(..., gt=0)
+    expireAt: str = Field("2026-12-31", max_length=10)
 
 
 class CartItemRequest(BaseModel):
@@ -281,6 +297,44 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     if user is None or not verify_password(body.password, user.password_hash):
         return fail("LOGIN_FAILED", "用户名或密码错误", http_status=401)
     return ok(login_response(user.user_id, [user.role] if user.role != "user" else ["user"]))
+
+
+@app.post("/auth/register", tags=["auth"], summary="注册买家（JWT）")
+def register(body: RegisterRequest, db: Session = Depends(get_db)):
+    """注册买家账号。与图书系统保持一致的注册体验，便于自动化测试自建数据。"""
+    from sut.db import fail
+
+    if db.get(User, body.userId) is not None:
+        return fail("USER_ALREADY_EXISTS", f"买家账号已存在：{body.userId}", http_status=409)
+    user = User(user_id=body.userId, name=body.name,
+                password_hash=hash_password(body.password), role="user")
+    db.add(user)
+    db.flush()
+    address_id = f"A{len(db.scalars(select(Address)).all()) + 1:03d}"
+    db.add(Address(address_id=address_id, user_id=body.userId,
+                   detail=body.address or "默认收货地址"))
+    db.commit()
+    payload = login_response(user.user_id, ["user"])
+    payload.update({"name": user.name, "addressId": address_id})
+    return ok(payload, message="注册成功")
+
+
+@app.post("/coupons", tags=["coupon"], summary="发放优惠券（管理员）")
+def create_coupon(body: CouponCreateRequest, user: Dict[str, Any] = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """管理员为指定买家发放一张优惠券（门槛 / 面额 / 有效期可控）。"""
+    from sut.db import fail
+
+    require_role(user, "admin")
+    if db.get(User, body.userId) is None:
+        raise http_error(404, "USER_NOT_FOUND", f"买家不存在：{body.userId}")
+    if body.amount <= 0:
+        return fail("INVALID_PARAM", "券面额必须大于 0", http_status=400)
+    coupon = Coupon(coupon_id=body.couponId, user_id=body.userId, threshold=body.threshold,
+                    amount=body.amount, status="UNUSED", expire_at=body.expireAt)
+    db.add(coupon)
+    db.commit()
+    return ok(coupon.to_dict(), message="优惠券已发放")
 
 
 @app.get("/skus", tags=["sku"], summary="商品列表")
