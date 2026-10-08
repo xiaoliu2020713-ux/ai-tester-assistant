@@ -1,4 +1,4 @@
-﻿"""前台流程复现与验证：用与 Streamlit 界面**完全相同的代码路径**跑一遍。
+"""前台流程复现与验证：用与 Streamlit 界面**完全相同的代码路径**跑一遍。
 
 界面（app.py）调用的就是这些模块与方法，因此本脚本通过 ⇒ 界面上点击也能走通：
 
@@ -185,6 +185,13 @@ def main() -> int:
     check("识别出接口", len(analysis.endpoints) >= 3,
           f"{len(analysis.endpoints)} 个：" + ", ".join(analysis.endpoints[:5]))
 
+    # 每次复现前先清掉上一轮索引进去的演示文档，否则知识库会被重复内容撑大
+    before_counts = {s.key: s.count for s in manager.statuses()}
+    manager.clear_uploads("library")
+    after_counts = {s.key: s.count for s in manager.statuses()}
+    if before_counts.get("library", 0) != after_counts.get("library", 0):
+        print(f"  已清理上一轮索引的演示文档：library {before_counts.get('library')} → "
+              f"{after_counts.get('library')} 片段")
     indexed = manager.add_document("library", API_DOC, source="frontend_flow_demo.md",
                                    media_type="markdown")
     check("索引进 library 域", bool(indexed.get("chunks")),
@@ -206,8 +213,9 @@ def main() -> int:
         step(4, "AI 测试员 → 根据 API 文档生成结构化测试用例")
         tester = AITester(llm_cfg, on_log=lambda msg: None)
         chunks, context_block = tester.retrieve_context(QUESTION, "library", kb_manager=manager)
+        top_source = ((chunks[0].metadata or {}).get("source") if chunks else None) or "?"
         check("检索到业务规则作为上下文", len(chunks) > 0,
-              f"{len(chunks)} 个片段" + (f"；最相关来源 {chunks[0].source}" if chunks else ""))
+              f"{len(chunks)} 个片段" + (f"；最相关来源 {top_source}" if chunks else ""))
 
         started = time.time()
         buffer: list[str] = []

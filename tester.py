@@ -297,6 +297,23 @@ def _is_separator(cells: Sequence[str]) -> bool:
     return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c or "") for c in cells)
 
 
+def _normalize_header(text: str) -> str:
+    """归一化表头：去掉所有空白与下划线，便于宽松匹配。
+
+    真实模型常把列名写成 `用例 ID`（中间带空格），甚至全角空格 `用例　ID`；
+    若用精确子串匹配 `用例ID`，整张表都会被忽略（实测缺陷：解析出 0 条用例）。
+    """
+    return re.sub(r"[\s_]+", "", (text or "")).lower()
+
+
+def _looks_like_case_header(line: str) -> bool:
+    """判断一行是否是「测试用例表格」的表头。"""
+    if "|" not in line:
+        return False
+    normalized = _normalize_header(line)
+    return "用例id" in normalized or "caseid" in normalized or "用例编号" in normalized
+
+
 def parse_test_cases(markdown: str) -> List[TestCase]:
     """从 Markdown 文本中解析所有测试用例表格。"""
     lines = (markdown or "").splitlines()
@@ -304,7 +321,7 @@ def parse_test_cases(markdown: str) -> List[TestCase]:
     index = 0
     while index < len(lines):
         line = lines[index]
-        if "|" in line and "用例ID" in line:
+        if _looks_like_case_header(line):
             header = _split_table_row(line)
             if index + 1 < len(lines) and _is_separator(_split_table_row(lines[index + 1])):
                 index += 2
@@ -327,12 +344,14 @@ def _row_to_case(header: Sequence[str], cells: Sequence[str]) -> TestCase:
     mapping: Dict[str, str] = {}
     for position, column in enumerate(header):
         value = cells[position] if position < len(cells) else ""
-        mapping[column.strip()] = value
+        mapping[_normalize_header(column)] = value
 
     def pick(*names: str) -> str:
+        # 双方都做去空白/小写归一化，避免 `用例 ID` 匹配不上 `用例ID`
         for name in names:
+            needle = _normalize_header(name)
             for key, value in mapping.items():
-                if name in key:
+                if needle and needle in key:
                     return value
         return ""
 
