@@ -236,6 +236,19 @@ def _render_assertion(assertion: Assertion, checker: str = "check") -> str:
             call = f'{checker}.json_not_exists({_py_literal(assertion.path)})'
         elif op == "not_equals":
             call = f'{checker}.custom(json_path(response.json, {_py_literal(assertion.path)}) != {_py_literal(assertion.expected)}, "期望 {assertion.path} != {assertion.expected!r}")'
+        elif op == "not_empty":
+            # 期望"非空"：值为真即通过（非空字符串/非空列表/非零数字）
+            # 注意：不能落到默认的 equals 分支，否则会变成 `== None` 恒假断言
+            call = (f'{checker}.custom(bool(json_path(response.json, {_py_literal(assertion.path)})), '
+                    f'"期望 {assertion.path} 非空")')
+        elif op == "empty":
+            call = (f'{checker}.custom(not json_path(response.json, {_py_literal(assertion.path)}), '
+                    f'"期望 {assertion.path} 为空")')
+        elif op in {"in", "not_in"}:
+            head = "" if op == "in" else "not "
+            call = (f'{checker}.custom(json_path(response.json, {_py_literal(assertion.path)}) '
+                    f'{head}in {_py_literal(assertion.expected)}, '
+                    f'"期望 {assertion.path} {head}in {assertion.expected!r}")')
         elif op == "contains":
             call = f'{checker}.custom({_py_literal(assertion.expected)} in (json_path(response.json, {_py_literal(assertion.path)}) or ""), "期望 {assertion.path} 包含 {assertion.expected!r}")'
         elif op in {"gt", "lt", "gte", "lte"}:
@@ -415,7 +428,11 @@ def render_test_module(module_name: str, cases: Sequence[TestCase], domain: str)
     lines: List[str] = [HEADER, "from __future__ import annotations", "", "import os", "", "import pytest", ""]
     if needs_anon:
         lines.append("# anon_client 由 conftest.py 提供（不带鉴权头）")
-    lines.append("from conftest import load_case, run_case")
+    # 除 load_case / run_case 外，还要导入 json_path：
+    # `gt/lt/gte/lte/contains/not_equals` 这几类断言会渲染成
+    # `check.custom(json_path(response.json, '...') ...)`，
+    # 缺少该导入会让生成的代码直接 NameError（本轮实测发现的真实缺陷）。
+    lines.append("from conftest import json_path, load_case, run_case")
     lines.append("")
     lines.append("")
     for case in cases:

@@ -17,6 +17,7 @@ import math
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 import config as app_config
@@ -137,25 +138,67 @@ class OpenAICompatEmbeddings:
 # ---------------------------------------------------------------------------
 # 3) SentenceTransformer
 # ---------------------------------------------------------------------------
-def _prepare_hf_environment() -> str:
-    """配置 HuggingFace 下载环境，返回实际使用的 endpoint。
+def _cache_root() -> "os.PathLike[str] | str":
+    """返回 HuggingFace 缓存根目录（优先环境变量，其次项目内 storage/models）。"""
+    home = os.getenv("HF_HOME", "").strip()
+    if home:
+        return home
+    return app_config.STORAGE_DIR / "models"
 
-    两个实测问题：
-    1. 本机（国内网络）直连 huggingface.co 不通，镜像 `hf-mirror.com` 可用；
-    2. 默认缓存目录 `C:\\Users\\<user>\\.cache\\huggingface` 可能无写权限。
-    这里把缓存指到项目内 `storage/models`，并在直连失败时自动切镜像。
+
+def _model_cached(model_name: str) -> bool:
+    """判断某个 HF 模型是否**已经完整缓存**在本地。
+
+    只要快照里同时存在 `config.json` 与权重文件，就认为可用。
+    这一步很关键：模型已缓存时必须打开离线模式，否则 huggingface_hub 仍会对远端
+    做 HEAD 新鲜度检查，网络不通时会产生 `1s→2s→4s→8s→8s` 的重试风暴
+    （实测加载耗时 21.5s → 0.5s，相差 42 倍；见 scripts/_probe_hf_offline.py）。
     """
+    folder = "models--" + model_name.replace("/", "--")
+    snapshots = Path(_cache_root()) / "hub" / folder / "snapshots"
+    if not snapshots.is_dir():
+        return False
+    for snapshot in snapshots.iterdir():
+        if not snapshot.is_dir():
+            continue
+        names = {item.name for item in snapshot.iterdir() if item.is_file()}
+        weights = any(name.endswith((".safetensors", ".bin", ".onnx", ".gguf")) for name in names)
+        if "config.json" in names and weights:
+            return True
+    return False
+
+
+def _prepare_hf_environment(model_name: Optional[str] = None) -> str:
+    """配置 HuggingFace 运行环境，返回实际使用的 endpoint。
+
+    处理三个实测问题：
+    1. 本机（国内网络）直连 huggingface.co 不通、镜像 `hf-mirror.com` 可用；
+    2. 默认缓存目录 `C:\\Users\\<user>\\.cache\\huggingface` 可能无写权限 → 指到项目内；
+    3. **模型已缓存却仍联网做新鲜度检查**，导致加载被重试风暴拖慢 → 打开离线模式。
+    """
+    cache_dir = app_config.STORAGE_DIR / "models"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        # 显式设置，避免"HF_HOME 恰好为空时"才走缓存目录的分支
+        os.environ.setdefault("HF_HOME", str(cache_dir))
+    except Exception:  # pragma: no cover
+        pass
+
+    target = model_name or app_config.EMBEDDING_ST_MODEL
+
+    # 已缓存 → 强制离线，彻底不碰网络
+    if _model_cached(target):
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        endpoint = os.getenv("HF_ENDPOINT", "").strip() or "offline(cache)"
+        LOGGER.info("向量模型 %s 已在本地缓存，启用离线模式（不再访问 HuggingFace）", target)
+        return endpoint
+
+    # 未缓存 → 需要下载，选择可达的 endpoint
     endpoint = os.getenv("HF_ENDPOINT", "").strip()
     if not endpoint:
-        endpoint = "https://hf-mirror.com" if not _hf_reachable() else "https://huggingface.co"
+        endpoint = "https://huggingface.co" if _hf_reachable() else "https://hf-mirror.com"
         os.environ["HF_ENDPOINT"] = endpoint
-    if not os.getenv("HF_HOME"):
-        cache_dir = app_config.STORAGE_DIR / "models"
-        try:
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            os.environ["HF_HOME"] = str(cache_dir)
-        except Exception:  # pragma: no cover
-            pass
     return endpoint
 
 
@@ -176,12 +219,18 @@ class SentenceTransformerEmbeddings:
     kind = KIND_ST
 
     def __init__(self, model_name: str) -> None:
-        endpoint = _prepare_hf_environment()
+        endpoint = _prepare_hf_environment(model_name)
         from sentence_transformers import SentenceTransformer  # 延迟导入
 
-        LOGGER.info("加载本地向量模型 %s（HF endpoint=%s，缓存=%s）…", model_name, endpoint, os.getenv("HF_HOME", ""))
+        cache_folder = str(_cache_root())
+        offline = os.getenv("HF_HUB_OFFLINE") == "1"
+        LOGGER.info("加载本地向量模型 %s（endpoint=%s，缓存=%s，离线模式=%s）…",
+                    model_name, endpoint, cache_folder, offline)
         self.model_name = model_name
-        self._model = SentenceTransformer(model_name)
+        # 已缓存时 local_files_only=True，连"检查远端是否有更新"的请求都不发
+        self._model = SentenceTransformer(
+            model_name, cache_folder=cache_folder, local_files_only=offline
+        )
         getter = getattr(self._model, "get_embedding_dimension", None) or getattr(
             self._model, "get_sentence_embedding_dimension"
         )

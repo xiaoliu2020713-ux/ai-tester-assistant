@@ -1,0 +1,200 @@
+{
+  "generated_by": "内置演示用例（图书管理系统 · 免模型，供前台流程复现）",
+  "domain": "library",
+  "domain_name": "图书管理系统",
+  "count": 10,
+  "cases": [
+    {
+      "case_id": "TC-LIB-001",
+      "title": "正确账号口令登录成功并返回 JWT",
+      "method": "POST",
+      "path": "/auth/login",
+      "priority": "P0",
+      "type": "正常流程",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"username": "R001", "password": "123456"},
+      "expect": {
+        "status": 200,
+        "code": 0,
+        "desc": "HTTP 200；code=0；返回 accessToken、Bearer 类型、readerId=R001",
+        "json": {"data.tokenType": "Bearer", "data.readerId": "R001"},
+        "exists": ["data.accessToken"],
+        "checks": [
+          {"kind": "json", "path": "data.expiresIn", "operator": "gt", "expected": 0,
+           "description": "令牌有效期应为正数"}
+        ]
+      },
+      "precondition": "被测系统已启动；读者 R001 存在且口令为 123456",
+      "steps": ["调用登录接口", "校验响应含 accessToken 与 tokenType"],
+      "remark": "关联登录契约；accessToken 供后续需鉴权的用例复用"
+    },
+    {
+      "case_id": "TC-LIB-002",
+      "title": "注册参数校验：口令过短被拒绝",
+      "method": "POST",
+      "path": "/auth/register",
+      "priority": "P0",
+      "type": "边界值",
+      "headers": {"Content-Type": "application/json"},
+      "auth_required": false,
+      "body": {"readerId": "TC002", "name": "演示读者", "password": "123", "readerType": "GRAD"},
+      "expect": {
+        "status": 422,
+        "code": "INVALID_PARAM",
+        "desc": "口令少于 6 位应由 schema 拦截（HTTP 422 / INVALID_PARAM）"
+      },
+      "precondition": "口令长度为 3（低于下限 6）",
+      "steps": ["提交 3 位口令注册", "校验被参数校验拦截"],
+      "remark": "边界值：口令长度下边界外。此用例不产生数据，可重复运行"
+    },
+    {
+      "case_id": "TC-LIB-003",
+      "title": "重复注册同一学号被拒绝",
+      "method": "POST",
+      "path": "/auth/register",
+      "priority": "P1",
+      "type": "异常流程",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"readerId": "R001", "name": "重复注册", "password": "demo123456"},
+      "expect": {
+        "status": 409,
+        "code": "READER_ALREADY_EXISTS",
+        "desc": "HTTP 409；code=READER_ALREADY_EXISTS（唯一性校验）"
+      },
+      "precondition": "学号 R001 已存在（种子数据）",
+      "steps": ["用已存在的学号注册", "校验冲突错误码"],
+      "remark": "唯一性校验"
+    },
+    {
+      "case_id": "TC-LIB-004",
+      "title": "图书列表可查询且返回结构完整",
+      "method": "GET",
+      "path": "/books",
+      "priority": "P1",
+      "type": "正常流程",
+      "query": {"page": 1, "pageSize": 5},
+      "expect": {
+        "status": 200,
+        "code": 0,
+        "desc": "HTTP 200；code=0；items 非空、total > 0",
+        "checks": [
+          {"kind": "json", "path": "data.total", "operator": "gt", "expected": 0,
+           "description": "图书总数应大于 0"},
+          {"kind": "json", "path": "data.items", "operator": "not_empty",
+           "description": "返回条目不应为空"}
+        ],
+        "not_contains": ["traceback"]
+      },
+      "precondition": "数据库已有种子图书",
+      "steps": ["调用图书列表接口", "校验返回结构"],
+      "remark": "列表契约（本实现忽略分页参数，属已知缺陷 D-LIB-03）"
+    },
+    {
+      "case_id": "TC-LIB-005",
+      "title": "查询不存在的图书返回 404",
+      "method": "GET",
+      "path": "/books/NOT_EXIST_BOOK",
+      "priority": "P1",
+      "type": "异常流程",
+      "expect": {
+        "status": 404,
+        "code": "BOOK_NOT_FOUND",
+        "desc": "HTTP 404；code=BOOK_NOT_FOUND（错误码语义）"
+      },
+      "precondition": "bookId 不存在",
+      "steps": ["查询不存在的 bookId", "校验错误码语义"],
+      "remark": "错误码语义"
+    },
+    {
+      "case_id": "TC-LIB-006",
+      "title": "未携带令牌访问受保护接口被拒绝",
+      "method": "GET",
+      "path": "/auth/me",
+      "priority": "P0",
+      "type": "权限",
+      "auth_required": false,
+      "expect": {
+        "status": 401,
+        "code": "UNAUTHORIZED",
+        "desc": "HTTP 401；code=UNAUTHORIZED（鉴权基线）"
+      },
+      "precondition": "不携带 Authorization 头",
+      "steps": ["匿名访问 /auth/me", "校验返回 401"],
+      "remark": "鉴权基线检查"
+    },
+    {
+      "case_id": "TC-LIB-007",
+      "title": "借书边界值 borrowDays=0 被拒绝",
+      "method": "POST",
+      "path": "/books/B003/borrow",
+      "priority": "P0",
+      "type": "边界值",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"readerId": "R001", "borrowDays": 0},
+      "expect": {
+        "status": 400,
+        "code": "INVALID_PARAM",
+        "desc": "HTTP 400；code=INVALID_PARAM（合法区间 1~90 的下边界外）"
+      },
+      "precondition": "以 R001 登录；B003 有可借副本",
+      "steps": ["提交 borrowDays=0", "校验被拒绝"],
+      "remark": "边界值分析：下边界外"
+    },
+    {
+      "case_id": "TC-LIB-008",
+      "title": "借书边界值 borrowDays=91 被拒绝",
+      "method": "POST",
+      "path": "/books/B003/borrow",
+      "priority": "P0",
+      "type": "边界值",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"readerId": "R001", "borrowDays": 91},
+      "expect": {
+        "status": 400,
+        "code": "INVALID_PARAM",
+        "desc": "HTTP 400；code=INVALID_PARAM（合法区间 1~90 的上边界外）"
+      },
+      "precondition": "以 R001 登录；B003 有可借副本",
+      "steps": ["提交 borrowDays=91", "校验被拒绝"],
+      "remark": "边界值分析：上边界外"
+    },
+    {
+      "case_id": "TC-LIB-009",
+      "title": "为他人借书被拒绝（越权防护）",
+      "method": "POST",
+      "path": "/books/B003/borrow",
+      "priority": "P0",
+      "type": "权限",
+      "headers": {"Content-Type": "application/json"},
+      "body": {"readerId": "R002", "borrowDays": 30},
+      "expect": {
+        "status": 403,
+        "code": "FORBIDDEN",
+        "desc": "HTTP 403；code=FORBIDDEN（只能为本人借阅）"
+      },
+      "precondition": "以 R001 的令牌发起请求，但请求体 readerId 为 R002",
+      "steps": ["用 R001 的令牌为 R002 借书", "校验返回 403"],
+      "remark": "水平越权防护"
+    },
+    {
+      "case_id": "TC-LIB-010",
+      "title": "登录失败应返回 401（实测返回 500，缺陷 D-LIB-01）",
+      "method": "POST",
+      "path": "/auth/login",
+      "priority": "P0",
+      "type": "异常流程",
+      "headers": {"Content-Type": "application/json"},
+      "auth_required": false,
+      "body": {"username": "R001", "password": "wrong-password"},
+      "expect": {
+        "status": 401,
+        "desc": "认证失败应返回 401；被测系统存在已知缺陷 D-LIB-01（返回 500）"
+      },
+      "precondition": "口令错误",
+      "steps": ["用错误口令登录", "校验状态码"],
+      "skip_by_default": true,
+      "skip_reason": "负向契约用例：被测系统故意保留缺陷 D-LIB-01（登录失败返回 500）。默认跳过以保持套件绿色；查看缺陷发现效果请加 --run-defects",
+      "remark": "断言的是正确行为，因此缺陷存在时会失败——失败即缺陷被发现"
+    }
+  ]
+}
