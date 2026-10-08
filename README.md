@@ -1,23 +1,38 @@
-# AI 测试员助手平台（阶段一）
+# AI 测试员助手平台
 
-> 前端对话界面 + 多域 RAG 知识库 + 可配置大模型接口
-> **阶段一范围**：只做「AI 测试员」的对话与用例设计能力，**不包含**被测系统接入与自动化执行（阶段二）。
+[![Repo](https://img.shields.io/badge/GitHub-ai--tester--assistant-181717?logo=github)](https://github.com/xiaoliu2020713-ux/ai-tester-assistant)
+[![Python](https://img.shields.io/badge/Python-3.10~3.12-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.49-FF4B4B?logo=streamlit)](https://streamlit.io/)
 
-> **本机已验证环境**：Windows + Python **3.12.10** 虚拟环境，`streamlit 1.49.1` /
-> `langchain-core 0.3.86` / `chromadb 0.5.4` / `openai 1.109.1`；
+> **仓库地址**：<https://github.com/xiaoliu2020713-ux/ai-tester-assistant>
+> ```powershell
+> git clone https://github.com/xiaoliu2020713-ux/ai-tester-assistant.git
+> cd ai-tester-assistant
+> ```
+
+**一句话**：一个能对话的「AI 测试员」——粘贴 API 文档，结合多业务域知识库产出结构化测试用例，
+并把用例变成**真正能跑的 pytest 脚本**，在自带的 4 个 FastAPI 被测系统上执行、发现缺陷。
+
+| 阶段 | 内容 | 状态 |
+| --- | --- | --- |
+| **阶段一** | Streamlit 对话界面 + 多域 RAG 知识库（LangChain + ChromaDB，语义向量）+ 可配置大模型（本地 llama.cpp / DeepSeek） | ✅ 已完成 |
+| **阶段二** | 用例 JSON → pytest 脚本生成器 + 执行器 + **4 个 FastAPI 被测系统**（SQLAlchemy + SQLite + JWT + passlib，44 条故意植入缺陷） | ✅ 已完成 |
+
+> **本机已验证环境**：Windows + Python **3.12.10**，`streamlit 1.49.1` / `langchain-core 0.3.86` /
+> `chromadb 0.5.4` / `fastapi 0.141.1` / `sqlalchemy 2.1.4`；
 > 本地模型为 **llama.cpp + Qwen3.5-4B-Q6_K.gguf**（监听 `127.0.0.1:8080`，实测 44 tokens/s）。
-> 离线自检、界面无头测试、模型链路测试、**真实模型端到端**、阶段二端到端均已通过，详见「十、验证记录」。
+> 离线自检、界面无头测试、模型链路测试、**真实模型端到端**、阶段二端到端、四服务冒烟均已通过。
 
-> **本地模型已在 `D:\tools` 备好**（llama.cpp CUDA 版 + `Qwen3.5-4B-Q6_K.gguf`），
-> 一条命令即可拉起：`python scripts/start_local_model.py`
-> 详见「三、本地模型配置」。
+> **本地模型在 `D:\tools` 备好**（llama.cpp CUDA 版 + `Qwen3.5-4B-Q6_K.gguf`），
+> 一条命令即可拉起：`python scripts/start_local_model.py`（详见「四、本地模型配置」）。
 
 ```
 用户在界面粘贴 API 文档
         │
         ├─► 自动识别接口（方法/路径/参数/错误码）
         │
-        ├─► 索引到当前业务域（ChromaDB 持久化）
+        ├─► 索引到当前业务域（ChromaDB 持久化，语义向量检索）
         │
         └─► 检索当前业务域知识（业务规则/测试场景/用例模板）
                     │
@@ -28,6 +43,9 @@
    结构化测试用例（Markdown 表格）→ 直接返回聊天框
                     │
                     ├─► 阶段二 JSON（自动化执行输入）
+                    │        ▼
+                    │   pytest 脚本 → 在 4 个 FastAPI 被测系统上执行 → 发现 44 条已知缺陷
+                    │
                     ├─► CSV（Excel 查看）
                     └─► Gherkin（BDD）
 ```
@@ -35,6 +53,40 @@
 ---
 
 ## 一、快速开始
+
+### 0. 三分钟体验路径（不需要模型，不需要外网）
+
+克隆后依次执行，**全程不依赖任何大模型**，用于快速验证阶段二能力：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+
+# ① 拉起 4 个 FastAPI 被测系统（SQLite 自动建表 + 灌种子数据）
+python sut/run_service.py all --background
+python sut/run_service.py --status           # 应显示 4 个 🟢 运行中
+
+# ② 冒烟自检：基础设施（JWT/401/403/404/422）+ 正确行为对照 + 44 条已知缺陷
+python sut/smoke_all.py                      # 期望：✅ 全部通过
+
+# ③ 用内置演示用例生成 pytest 脚本并执行（会真的发现被测服务缺陷）
+python scripts/generate_tests.py --demo
+python scripts/run_tests.py --with-mock      # 或 --env live 打线上
+
+# ④ 想看缺陷发现效果（运行默认跳过的负向契约用例）
+python scripts/run_tests.py --with-mock --run-defects
+```
+
+想在界面上体验（含 AI 生成用例）再启动：
+
+```powershell
+python scripts/start_local_model.py          # 本地千问3.5 4B（需 D:\tools 的模型）
+streamlit run app.py                         # http://localhost:8501
+```
+
+界面「⚙️ 阶段二」页签里把「目标环境」切到 **自定义地址**，填 `http://127.0.0.1:8101`（或 8102/8103/8104），
+即可让 AI 测试员针对这些被测系统生成并执行用例。
 
 ### 1. 环境要求
 
