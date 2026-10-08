@@ -1,4 +1,4 @@
-"""前台流程复现与验证：用与 Streamlit 界面**完全相同的代码路径**跑一遍。
+﻿"""前台流程复现与验证：用与 Streamlit 界面**完全相同的代码路径**跑一遍。
 
 界面（app.py）调用的就是这些模块与方法，因此本脚本通过 ⇒ 界面上点击也能走通：
 
@@ -101,10 +101,10 @@ API_DOC = """# 图书管理系统 接口文档（节选）
 """
 
 QUESTION = (
-    "请根据我粘贴的《图书管理系统 接口文档（节选）》，为其中每个接口生成测试用例。"
+    "请分析下面的 API 文档，结合《图书管理系统》业务规则，为其中每个接口生成测试用例。"
     "必须覆盖正常流程、异常流程、边界值，重点考虑库存校验与权限。"
     "请直接输出 Markdown 表格，列包含：用例ID、用例标题、接口、优先级、用例类型、"
-    "前置条件、请求参数、测试步骤、预期结果、备注。"
+    "前置条件、请求参数、测试步骤、预期结果、备注。\n\n```\n" + API_DOC + "\n```"
 )
 
 
@@ -133,7 +133,8 @@ def build_sut_config() -> SUTConfig:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="前台流程复现验证")
-    parser.add_argument("--skip-llm", action="store_true", help="跳过真实模型生成环节")
+    parser.add_argument("--skip-llm", action="store_true", help="跳过真实模型生成环节（用内置演示用例走通执行链路）")
+    parser.add_argument("--reuse", action="store_true", help="复用上次缓存的模型回答（省去约 70s 生成时间）")
     args = parser.parse_args()
 
     print("=" * 78)
@@ -207,8 +208,17 @@ def main() -> int:
     # ------------------------------------------------------------------
     cases = []
     answer = ""
+    answer_cache = ROOT / "storage" / "execution" / "frontend_flow_model_answer.md"
     if args.skip_llm:
         step(4, "AI 生成用例（已跳过：--skip-llm）")
+    elif args.reuse and answer_cache.exists():
+        step(4, "AI 生成用例（复用上次模型输出：--reuse）")
+        answer = answer_cache.read_text(encoding="utf-8")
+        cases = parse_test_cases(answer)
+        check("复用缓存的模型回答", bool(answer.strip()), f"{len(answer)} 字符（{answer_cache.name}）")
+        check("解析出结构化用例", len(cases) >= 5, f"{len(cases)} 条")
+        if cases:
+            print(f"  用例统计：{json.dumps(case_stats(cases), ensure_ascii=False)}")
     else:
         step(4, "AI 测试员 → 根据 API 文档生成结构化测试用例")
         tester = AITester(llm_cfg, on_log=lambda msg: None)
@@ -234,8 +244,17 @@ def main() -> int:
             print(f"  用例统计：{json.dumps(stats, ensure_ascii=False)}")
             for row in cases[:5]:
                 print(f"    {row.case_id:<18} {str(row.title)[:24]:<26} {row.priority:<4} {row.case_type}")
-        payload = to_phase2_payload(cases)
-        check("可导出执行用 JSON（界面右侧页签）", len(payload) == len(cases), f"{len(payload)} 条")
+        try:
+            answer_cache.parent.mkdir(parents=True, exist_ok=True)
+            answer_cache.write_text(answer, encoding="utf-8")
+            print(f"  已缓存模型回答 → {answer_cache.name}（下次可用 --reuse 复用，省去约 70s）")
+        except Exception as exc:
+            print(f"  缓存模型回答失败：{exc}")
+        payload = to_phase2_payload("library", cases)
+        exported = payload.get("cases") if isinstance(payload, dict) else payload
+        check("可导出执行用 JSON（界面右侧页签）",
+              isinstance(exported, list) and len(exported) == len(cases),
+              f"{len(exported or [])} 条")
 
     # ------------------------------------------------------------------
     step(5, "生成并执行 pytest 脚本 → 打被测系统")
