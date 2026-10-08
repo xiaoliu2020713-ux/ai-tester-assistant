@@ -1,4 +1,4 @@
-﻿"""前台流程复现与验证：用与 Streamlit 界面**完全相同的代码路径**跑一遍。
+"""前台流程复现与验证：用与 Streamlit 界面**完全相同的代码路径**跑一遍。
 
 界面（app.py）调用的就是这些模块与方法，因此本脚本通过 ⇒ 界面上点击也能走通：
 
@@ -61,7 +61,13 @@ def step(no: int, title: str) -> None:
     print("=" * 78)
 
 
-#: 界面「粘贴 API 文档」输入框里的内容（节选真实接口文档）
+#: 界面「粘贴 API 文档」输入框里的内容。
+#: 写法要点（直接决定生成用例能否被转成机器断言）：
+#:   * 每个接口都写清 **HTTP 状态码**（如「返回 200」「返回 400」）
+#:   * 每个错误场景都写清 **业务码**（如 `NO_AVAILABLE_COPY`）
+#:   * 给出**字段名**（如 `data.loanId`、`data.availableCopies`）
+#: 这样 `tester.extract_expect_from_text()` 才能抽成可执行断言；否则用例只会是
+#: 「待人工确认」（平台故意不伪造恒真断言，避免假通过）。
 API_DOC = """# 图书管理系统 接口文档（节选）
 
 ## POST /books/{book_id}/borrow  借书（库存校验）
@@ -69,35 +75,41 @@ API_DOC = """# 图书管理系统 接口文档（节选）
 请求体：
   readerId    string  必填  读者ID，必须与令牌主体一致
   borrowDays  int     可选  借阅天数，合法范围 1~90，默认 30
-成功响应 200：
-  {"code":0,"data":{"loanId":"L003","bookId":"B003","readerId":"R001",
-   "borrowTime":"2026-10-08","dueDate":"2026-11-07","availableCopies":3}}
+
+响应 200：{"code":0,"message":"借阅成功","data":{"loanId":"L003","bookId":"B003",
+  "readerId":"R001","borrowTime":"2026-10-08","dueDate":"2026-11-07","availableCopies":3}}
 错误响应：
-  400 INVALID_PARAM          borrowDays 超出 1~90
-  403 FORBIDDEN              为他人借书
-  404 BOOK_NOT_FOUND         图书不存在
-  409 NO_AVAILABLE_COPY      可借册数为 0
-  409 ALREADY_BORROWED       同一读者已借同书未归还
-  409 BORROW_LIMIT_EXCEEDED  已达借阅上限
-  409 READER_DISABLED        读者状态非 NORMAL
-  409 FINE_UNPAID            未缴罚金超过 20 元
+  返回 400 code=INVALID_PARAM          borrowDays 超出 1~90
+  返回 403 code=FORBIDDEN              为他人借书
+  返回 404 code=BOOK_NOT_FOUND         图书不存在
+  返回 409 code=NO_AVAILABLE_COPY      可借册数为 0
+  返回 409 code=ALREADY_BORROWED       同一读者已借同书未归还
+  返回 409 code=BORROW_LIMIT_EXCEEDED  已达借阅上限
+  返回 409 code=READER_DISABLED        读者状态非 NORMAL
+  返回 409 code=FINE_UNPAID            未缴罚金超过 20 元
 业务规则：
   BR-15 可借册数大于 0 时不允许预约
   BR-19 逾期罚金 0.2 元/天，上限为图书价格的 2 倍
   BR-24 库存扣减必须原子，禁止超借
 
 ## GET /books/{book_id}  查询图书详情
-成功响应 200：{"code":0,"data":{"bookId":"B003","title":"活着","totalCopies":5,"availableCopies":4}}
-错误响应：404 BOOK_NOT_FOUND
+响应 200：{"code":0,"data":{"bookId":"B003","isbn":"978-7-111-0003-3","title":"活着",
+  "totalCopies":5,"availableCopies":4,"status":"ON_SHELF"}}
+错误响应：返回 404 code=BOOK_NOT_FOUND
 
 ## POST /loans/{loan_id}/return  还书
 权限：Bearer JWT（本人或管理员）
-成功响应 200：
-  {"code":0,"data":{"loanId":"L003","returnTime":"2026-10-08","overdueDays":0,
-   "fineAmount":0.0,"fineId":null,"availableCopies":4}}
+响应 200：{"code":0,"message":"归还成功","data":{"loanId":"L003","returnTime":"2026-10-08",
+  "overdueDays":0,"fineAmount":0.0,"fineId":null,"availableCopies":4}}
 错误响应：
-  403 FORBIDDEN        归还他人借阅单
-  404 LOAN_NOT_FOUND   借阅单不存在
+  返回 403 code=FORBIDDEN        归还他人借阅单
+  返回 404 code=LOAN_NOT_FOUND   借阅单不存在
+
+## POST /auth/login  登录
+请求体：username、password
+响应 200：{"code":0,"data":{"accessToken":"<jwt>","tokenType":"Bearer","expiresIn":3600,
+  "readerId":"R001","roles":["reader"]}}
+错误响应：返回 401 code=LOGIN_FAILED（注意：当前实现错误地返回 500，属缺陷 D-LIB-01）
 """
 
 QUESTION = (
@@ -259,11 +271,29 @@ def main() -> int:
     # ------------------------------------------------------------------
     step(5, "生成并执行 pytest 脚本 → 打被测系统")
     sut_cfg = build_sut_config()
-    if not cases:
-        # 跳过模型时用**图书管理系统**的内置演示用例，仍然验证「生成 → 执行 → 报告」链路
-        # （等价于界面「一键载入演示用例」，但用例与目标系统匹配，所以应该全绿）
-        from executor.schema import parse_payload
 
+    from executor.schema import parse_payload
+
+    if cases:
+        # 关键：界面不会把对话侧的 TestCase 直接交给生成器，而是先转成 JSON 契约再解析回来：
+        #   tester.TestCase → enrich_payload_cases() → JSON 文本
+        #   → executor.schema.parse_payload() → executor.TestCase → generate_suite()
+        from tester import enrich_payload_cases
+
+        payload_obj = enrich_payload_cases("library", cases, api_doc_text=API_DOC, user_input=QUESTION)
+        payload_json = json.dumps(payload_obj, ensure_ascii=False, indent=2)
+        payload_path = ROOT / "storage" / "execution" / "frontend_flow_cases.json"
+        payload_path.write_text(payload_json, encoding="utf-8")
+        parsed_domain, exec_cases, parse_notes = parse_payload(payload_json)
+        print(f"  用例 JSON 已落盘：{payload_path.name}（域={parsed_domain}，"
+              f"执行侧用例 {len(exec_cases)} 条）")
+        for note in parse_notes[:3]:
+            print(f"    提示：{note}")
+        check("对接到执行侧 JSON 契约", len(exec_cases) > 0, f"{len(exec_cases)} 条")
+        if exec_cases:
+            cases = exec_cases
+    else:
+        # 跳过模型时用图书系统内置演示用例，仍然验证「生成 → 执行 → 报告」链路
         demo_path = ROOT / "examples" / "book_management_demo_cases.json"
         demo_domain, cases, demo_notes = parse_payload(demo_path.read_text(encoding="utf-8"))
         print(f"  （使用图书系统演示用例 {len(cases)} 条，域={demo_domain or '未标注'}）")

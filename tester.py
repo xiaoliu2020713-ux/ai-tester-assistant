@@ -250,19 +250,149 @@ def extract_expect_from_text(text: str) -> dict:
     return expect
 
 
+def _untag(text: str) -> str:
+    """去掉用例单元格里的 HTML 标签（如 `<br>`），换成可读分隔符。"""
+    cleaned = re.sub(r"(?i)<br\s*/?>", "；", text or "")
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    return cleaned
+
+
+#: 这些字段即使全是数字也必须当字符串（口令、验证码、ISBN 等）
+_STRING_KEYS = {
+    "password", "passwd", "pwd", "passwordhash", "oldpassword", "newpassword",
+    "token", "accesstoken", "secret", "code", "smscode", "captcha", "sign",
+    "isbn", "phone", "mobile", "idcard", "readerid", "userid", "bookid", "loanid",
+    "orderid", "payno", "refundno", "requestid", "idempotencykey", "couponid",
+}
+
+#: 顶层容器键：这些键的值分别对应 body / query / headers / path_params
+_CONTAINER_KEYS = {
+    "body": "body", "request": "body", "payload": "body", "data": "body",
+    "query": "query", "params": "query", "headers": "headers", "header": "headers",
+    "path_params": "path_params", "pathparams": "path_params",
+}
+
+
+def _to_literal(token: str, key: str = "") -> Any:
+    """把参数值文本转成 Python 字面量（数字/布尔/JSON/字符串）。
+
+    注意：口令、验证码、ISBN 这类字段**必须保持字符串**——
+    `123456` 被当成整数后，登录请求会因类型不匹配而失败。
+    """
+    token = (token or "").strip().strip("`").strip()
+    if not token:
+        return ""
+    if token.startswith(("{", "[")):
+        try:
+            return json.loads(token)
+        except Exception:
+            return _untag(token)
+    if key and _normalize_header(key) in {_normalize_header(k) for k in _STRING_KEYS}:
+        return token.strip('"\u201c\u201d\'')
+    lowered = token.lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    if lowered in ("null", "none"):
+        return None
+    if re.fullmatch(r"-?\d+", token):
+        return int(token)
+    if re.fullmatch(r"-?\d+\.\d+", token):
+        return float(token)
+    return token.strip('"\u201c\u201d\'')
+
+
+def parse_request_params(text: str) -> Dict[str, Any]:
+    """把「请求参数」列的文本解析成 JSON 可用的字典。
+
+    真实模型（本地千问3.5）常写成：
+
+        readerId: "R001"<br>borrowDays: 14
+        1. readerId = R001；2. borrowDays = 14
+        {"readerId": "R001", "borrowDays": 14}
+
+    三种写法都要能认出来——否则生成的用例**没有请求体**，
+    打到服务端只会得到 422，白白浪费一整轮生成。
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return {}
+
+    # ① 整段就是 JSON
+    if raw.startswith("{"):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            pass
+
+    # ② `容器键: {JSON}`（如 `query: {"page": 1}`）——必须**保留容器键**，
+    #    否则 split_params 无法把它分流到 query 上，会被当成 body 发出去。
+    container = re.fullmatch(
+        r"\s*([A-Za-z_][A-Za-z0-9_\-]*)\s*[:：=]\s*(\{.*\}|\[.*\])\s*", raw, re.DOTALL)
+    if container:
+        key, blob = container.group(1), container.group(2)
+        try:
+            value = json.loads(blob)
+        except Exception:
+            value = None
+        if value is not None:
+            return {key: value}
+
+    # ③ 行内 JSON 片段
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        try:
+            parsed = json.loads(match.group(0))
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+    # ③ key: value / key = value（允许 <br>、；、换行、有序列表前缀）
+    normalized = _untag(raw)
+    normalized = re.sub(r"^\s*\d+\s*[.、)]\s*", " ", normalized)
+    pattern = re.compile(
+        r"([A-Za-z_][A-Za-z0-9_\-]*)\s*[:：=]\s*"
+        r"(\{[^{}]*\}|\[[^\[\]]*\]|\"[^\"]*\"|'[^']*'|[^；;,\n]+)"
+    )
+    found: Dict[str, Any] = {}
+    for key, value in pattern.findall(normalized):
+        if key in found:
+            continue
+        found[key] = _to_literal(value, key)
+    return found
+
+
+def split_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    """把参数字典拆成 `{body, query, headers, path_params}`。
+
+    `query: {...}` 这类写法要落到 query 上，不能塞进 body 一起发。
+    """
+    grouped: Dict[str, Any] = {"body": {}, "query": {}, "headers": {}, "path_params": {}}
+    for key, value in (params or {}).items():
+        target = _CONTAINER_KEYS.get(_normalize_header(key))
+        if target and isinstance(value, dict):
+            grouped[target].update(value)
+        else:
+            grouped["body"][key] = value
+    return {k: v for k, v in grouped.items() if v}
+
+
 def enrich_payload_cases(
     domain_key: str, cases: Sequence["TestCase"], *, api_doc_text: str = "", user_input: str = ""
 ) -> Dict[str, Any]:
     """把 Markdown 表格解析出的用例，富化为阶段二可直接执行的 JSON。
 
-    相比 `to_phase2_payload`，本函数额外做三件事：
+    相比 `to_phase2_payload`，本函数额外做四件事：
         1. 从「预期结果」列抽取状态码 / 业务码 / 断言文本；
         2. 从用户输入与 API 文档文本推断 headers（Content-Type、Idempotency-Key 等）；
-        3. 用 API 文档中的真实取值替换路径/请求参数里的占位符。
+        3. 把「请求参数」列的**文本**解析成 JSON `body`（否则执行时没有请求体，只会得到 422）；
+        4. 用 API 文档里的真实取值替换路径占位符（如 `{book_id}`）。
     """
     headers = infer_headers(user_input, api_doc_text)
     payload = to_phase2_payload(domain_key, cases)
     for item in payload["cases"]:
+        # ---- 预期结果 ----
         expect = dict(item.get("expect") or {})
         desc = expect.pop("desc", "")
         extracted = extract_expect_from_text(desc)
@@ -270,8 +400,35 @@ def enrich_payload_cases(
         if desc:
             merged["desc"] = desc
         item["expect"] = merged
+
+        # ---- headers ----
         if headers:
             item["headers"] = {**(item.get("headers") or {}), **headers}
+
+        # ---- 请求参数：文本 → JSON（按 body / query / headers / path_params 分流）----
+        method = str(item.get("method") or "GET").upper()
+        if not item.get("body") and not item.get("query"):
+            params = parse_request_params(_untag(str(item.get("request") or "")))
+            grouped = split_params(params)
+            if grouped.get("body") and method in ("POST", "PUT", "PATCH", "DELETE"):
+                item["body"] = grouped["body"]
+                item.setdefault("headers", {}).setdefault("Content-Type", "application/json")
+            if grouped.get("query"):
+                item["query"] = {**(item.get("query") or {}), **grouped["query"]}
+            if grouped.get("headers"):
+                item["headers"] = {**(item.get("headers") or {}), **grouped["headers"]}
+            if grouped.get("path_params"):
+                item["path_params"] = grouped["path_params"]
+
+        # ---- 路径占位符 ---- 用请求体里的同名字段填上（如 {book_id} ← book_id）
+        path = str(item.get("path") or "")
+        if "{" in path:
+            values = dict(item.get("body") or {})
+            values.update({k: v for k, v in (item.get("query") or {}).items()})
+            for token in re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", path):
+                if token in values and str(values[token]) not in ("", "None"):
+                    path = path.replace("{" + token + "}", str(values[token]))
+            item["path"] = path
     return payload
 
 

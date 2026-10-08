@@ -202,6 +202,28 @@ streamlit run app.py
 
 浏览器打开 <http://localhost:8501>（首次启动会自动构建三个业务域的预置知识库，约需 5~20 秒）。
 
+### 7. 一键复现（推荐给第一次上手的同学）
+
+```powershell
+# 体检 + 按需拉起「本地模型 / 被测系统 / Streamlit 前端」三个服务
+python scripts/reproduce.py --check          # 只体检，不启动
+python scripts/reproduce.py --with-model     # 连本地大模型一起拉起
+python scripts/reproduce.py --stop           # 全部停止
+
+# 用与界面完全相同的代码路径跑一遍完整流程（模型配置 → 知识域 → 文档索引 →
+# AI 生成用例 → 渲染 pytest → 真实执行 → 报告摘要）
+python scripts/verify_frontend_flow.py                 # 真实模型生成（约 70s）
+python scripts/verify_frontend_flow.py --reuse         # 复用上次模型回答，省去生成时间
+python scripts/verify_frontend_flow.py --skip-llm      # 不调用模型，用内置演示用例走通执行链路
+
+# 查知识库索引状态与语义检索质量
+python scripts/check_kb_status.py
+```
+
+> **写好 API 文档的小技巧**：文档里写明 **HTTP 状态码**（「返回 400」）与**业务码**
+> （`NO_AVAILABLE_COPY`）以及**字段名**（`data.loanId`），平台才能把「预期结果」
+> 抽成可执行断言。否则用例会标为 **待人工确认**（平台故意不伪造恒真断言，避免假通过）。
+
 ---
 
 <div align="right"><a href="#-目录">⬆ 返回目录</a></div>
